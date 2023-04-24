@@ -40,7 +40,7 @@ busInitialized = False
 data = np.zeros(((6, 5, 3)))
 lastPressedKey = 0
 lastAuth = 0
-isAllReceived = [False]*12
+isAllReceived = [False]*13
 timeBetweenMsgs = 0 #timeit.default_timer()
 lastMsgTime = 0 #timeit.default_timer()
 firstReceivedMsg = True
@@ -92,7 +92,9 @@ class WorkThread(QObject):
                 self.keyNumIdReceived.emit()
 
             elif msg.arbitration_id == PKE_AUTH_OK_ID:
-                self.lastAuth = int(msg.data[0])
+                isAllReceived[12] = True
+                global lastAuth
+                lastAuth = int(msg.data[1])
 
             elif msg.arbitration_id == PKE_ANT1_KEY_1_2_3_ID:
                 isAllReceived[0] = True
@@ -381,13 +383,21 @@ class MainWindow(QMainWindow):
         self.widgetLastKeyNum.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         layoutLocal[6].addWidget(self.widgetLastKeyNum)
 
+        # Set was auth OK or not
+        self.widgetAuth = QLabel("Auth: None\t") 
+        font = self.widgetAuth.font()
+        font.setPointSize(20)
+        self.widgetAuth.setFont(font)
+        self.widgetAuth.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        layoutLocal[6].addWidget(self.widgetAuth)
+
         # Set Change Power Mode button Label
         self.widgetChMode = QPushButton("Change Power Mode")
         font = self.widgetChMode.font()
         font.setPointSize(12)
         self.widgetChMode.setFont(font)
-        layoutLocal[6].addWidget(self.widgetChMode)
-        self.widgetChMode.clicked.connect(self.ChangeModeHandler)
+        # layoutLocal[6].addWidget(self.widgetChMode)
+        # self.widgetChMode.clicked.connect(self.ChangeModeHandler)
 
         # Show Power Mode
         self.widgetPwrMode = QLabel("Power Mode: Normal")
@@ -608,6 +618,12 @@ class MainWindow(QMainWindow):
 
     def PrintAllDataHandler(self):
         self.widgetCanMsgPeriod.setText("Msg Period: %d" % int(timeBetweenMsgs))
+        global lastAuth
+        if lastAuth:
+            self.widgetAuth.setText(f'Auth: OK')
+        else:
+            self.widgetAuth.setText(f'Auth: Fail')
+
         self.PrintAllData(data)
 
     def PrintAllData(self, printData):
@@ -702,12 +718,12 @@ def app_start():
 
 
 if __name__ == "__main__": 
-    # app_start()
-    with can.Bus(interface='systec', channel='0', bitrate=500000) as bus:
-        for msg in bus:
-            if msg.arbitration_id == 0x7C3:
-            # if msg.arbitration_id == 0x7C4:
-                print(msg.data[0])
+    app_start()
+    # with can.Bus(interface='systec', channel='0', bitrate=500000) as bus:
+    #     for msg in bus:
+    #         # if msg.arbitration_id == 0x7C3:
+    #         # if msg.arbitration_id == 0x7C4:
+    #         print(msg)
 
 # TIME STAMP
 
