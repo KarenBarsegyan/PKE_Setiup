@@ -3,7 +3,7 @@ import sys
 from PyQt6.QtWidgets import (
     QMainWindow, QCheckBox, QVBoxLayout, 
     QApplication, QLabel, QHBoxLayout, 
-    QWidget, QPushButton
+    QWidget, QPushButton, QLineEdit
 )
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject
 from PyQt6 import QtCore
@@ -11,10 +11,11 @@ from PyQt6 import QtCore
 import can
 import numpy as np
 
-import timeit
 import time
 
 import xlsxwriter
+
+import os
 
 RKE_KEY_NUM_ID        = 0x0111
 
@@ -43,14 +44,17 @@ data = np.zeros(((6, 5, 3)))
 lastPressedKey = 0
 lastAuth = 0
 isAllReceived = [False]*13
-timeBetweenMsgs = 0 #timeit.default_timer()
-lastMsgTime = 0 #timeit.default_timer()
+timeBetweenMsgs = 0
+lastMsgTime = 0
+firstMsgTime = 0
 firstReceivedMsg = True
 AntMask = 0
 PowerMode = 0
 
 row = 0
 column = 0
+row_single = 0
+column_single = 0
 
 class WorkThread(QObject):
     finished = pyqtSignal()
@@ -90,6 +94,9 @@ class WorkThread(QObject):
 
             if msg == None:
                 break
+
+            global lastMsgTime
+            lastMsgTime = msg.timestamp
 
             if   msg.arbitration_id == RKE_KEY_NUM_ID:
                 global lastPressedKey
@@ -272,17 +279,16 @@ class WorkThread(QObject):
         
         if isAllDone:
             global timeBetweenMsgs
-            global lastMsgTime
+            global firstMsgTime
             global firstReceivedMsg
-            
-            newTime = timeit.default_timer()
+
             if (firstReceivedMsg == False):
-                timeBetweenMsgs = (newTime - lastMsgTime)*1000
+                timeBetweenMsgs = (lastMsgTime - firstMsgTime)*1000
             else:
                 timeBetweenMsgs = 0
                 firstReceivedMsg = False
 
-            lastMsgTime = newTime
+            firstMsgTime = lastMsgTime
 
             for idx in range(0, len(isAllReceived)):
                 isAllReceived[idx] = False 
@@ -396,21 +402,38 @@ class MainWindow(QMainWindow):
         self.widgetAuth.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         layoutLocal[6].addWidget(self.widgetAuth)
 
-        # Set Change Power Mode button Label
-        self.widgetChMode = QPushButton("Change Power Mode")
-        font = self.widgetChMode.font()
-        font.setPointSize(12)
-        self.widgetChMode.setFont(font)
-        # layoutLocal[6].addWidget(self.widgetChMode)
-        # self.widgetChMode.clicked.connect(self.ChangeModeHandler)
+        # # Set Change Power Mode button Label
+        # self.widgetChMode = QPushButton("Change Power Mode")
+        # font = self.widgetChMode.font()
+        # font.setPointSize(12)
+        # self.widgetChMode.setFont(font)
+        # # layoutLocal[6].addWidget(self.widgetChMode)
+        # # self.widgetChMode.clicked.connect(self.ChangeModeHandler)
 
-        # Show Power Mode
-        self.widgetPwrMode = QLabel("Power Mode: Normal")
-        font = self.widgetPwrMode.font()
+        # # Show Power Mode
+        # self.widgetPwrMode = QLabel("Power Mode: Normal")
+        # font = self.widgetPwrMode.font()
+        # font.setPointSize(12)
+        # self.widgetPwrMode.setFont(font)
+        # self.widgetPwrMode.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        # layoutLocal[6].addWidget(self.widgetPwrMode)
+
+        # Get log msg
+        self.widgetLogMsg = QLineEdit()
+        font = self.widgetLogMsg.font()
         font.setPointSize(12)
-        self.widgetPwrMode.setFont(font)
-        self.widgetPwrMode.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        layoutLocal[6].addWidget(self.widgetPwrMode)
+        self.widgetLogMsg.setFont(font)
+        self.widgetLogMsg.setMaximumHeight(200)
+        self.widgetLogMsg.setMaximumWidth(300)
+        layoutLocal[6].addWidget(self.widgetLogMsg)
+
+        # Set button to send log
+        self.widgetAddLog = QPushButton("Add LOG")
+        font = self.widgetAddLog.font()
+        font.setPointSize(12)
+        self.widgetAddLog.setFont(font)
+        layoutLocal[6].addWidget(self.widgetAddLog)
+        self.widgetAddLog.clicked.connect(self.AddLogHandler)
 
 
         self.layoutCheckAndLabel = [
@@ -549,6 +572,8 @@ class MainWindow(QMainWindow):
         widget.setLayout(layoutBig)
         self.setCentralWidget(widget)
 
+        self.show()
+
     def CanSendInit(self):
         # Create a QThread and Worker object
         self.sendThread = QThread()
@@ -598,7 +623,9 @@ class MainWindow(QMainWindow):
             self.widgetCanMsgPeriod.setText("Msg Period: %d" % int(0))
             global firstReceivedMsg
             firstReceivedMsg = True
-            self.PrintAllData(np.zeros(((6, 5, 3)))) 
+            global data
+            data = np.zeros(((6, 5, 3)))
+            self.PrintAllData(0) 
 
     def LastKeyIdUpdate(self):
         self.widgetLastKeyNum.setText("Last Key Pressed Num: %d\t\t" % lastPressedKey)
@@ -608,6 +635,68 @@ class MainWindow(QMainWindow):
 
     def BusDeInitHandler(self):
         BusDeInit()
+
+    def AddLogHandler(self):
+        self.AddLog(data)
+
+    def AddLog(self, printData):
+        global row_single
+        global column_single
+
+        time_hms = time.strftime("%H:%M:%S", time.localtime())
+        time_dmy = time.strftime("%d/%m/%Y", time.localtime())
+        
+        bold = workbook.add_format({'bold': True})
+
+        worksheet_single.write(row_single, column_single,   'Time: ', bold)
+        worksheet_single.write(row_single, column_single+1, f'{time_hms}')
+        worksheet_single.write(row_single, column_single+2, 'Date: ', bold)
+        worksheet_single.write(row_single, column_single+3, f'{time_dmy}')
+
+        global lastAuth
+        if lastAuth:
+            worksheet_single.write(row_single, column_single+5, 'Auth OK', bold)
+        else:
+            worksheet_single.write(row_single, column_single+5, 'Auth Fail', bold)
+
+        msg = self.widgetLogMsg.text()
+        worksheet_single.write(row_single, column_single+7, 'Message: ', bold)
+        worksheet_single.write(row_single, column_single+8, f'{msg}')
+
+        worksheet_single.write(row_single+3, column_single, "KEY 1")
+        worksheet_single.write(row_single+4, column_single, "KEY 2")
+        worksheet_single.write(row_single+5, column_single, "KEY 3")
+        worksheet_single.write(row_single+6, column_single, "KEY 4")
+        worksheet_single.write(row_single+7, column_single, "KEY 5")
+
+        for i in range(5):
+            worksheet_single.write(row_single+1, i*4+column_single+2, f"ANTENNA {i+1}")
+
+            worksheet_single.write(row_single+2, i*4+column_single+1, "RSSI X")
+            worksheet_single.write(row_single+2, i*4+column_single+2, "RSSI Y")
+            worksheet_single.write(row_single+2, i*4+column_single+3, "RSSI Z")
+
+            worksheet_single.write_number(row_single+3, i*4+column_single+1, printData[i][0][0])
+            worksheet_single.write_number(row_single+3, i*4+column_single+2, printData[i][0][1])                 
+            worksheet_single.write_number(row_single+3, i*4+column_single+3, printData[i][0][2])
+
+            worksheet_single.write_number(row_single+4, i*4+column_single+1, printData[i][1][0])
+            worksheet_single.write_number(row_single+4, i*4+column_single+2, printData[i][1][1])                 
+            worksheet_single.write_number(row_single+4, i*4+column_single+3, printData[i][1][2])
+
+            worksheet_single.write_number(row_single+5, i*4+column_single+1, printData[i][2][0])
+            worksheet_single.write_number(row_single+5, i*4+column_single+2, printData[i][2][1])                 
+            worksheet_single.write_number(row_single+5, i*4+column_single+3, printData[i][2][2])
+
+            worksheet_single.write_number(row_single+6, i*4+column_single+1, printData[i][3][0])
+            worksheet_single.write_number(row_single+6, i*4+column_single+2, printData[i][3][1])                 
+            worksheet_single.write_number(row_single+6, i*4+column_single+3, printData[i][3][2])
+
+            worksheet_single.write_number(row_single+7, i*4+column_single+1, printData[i][4][0])
+            worksheet_single.write_number(row_single+7, i*4+column_single+2, printData[i][4][1])                 
+            worksheet_single.write_number(row_single+7, i*4+column_single+3, printData[i][4][2])
+
+        row_single += 9
 
     def ChangeModeHandler(self):
         global PowerMode
@@ -622,7 +711,7 @@ class MainWindow(QMainWindow):
         self.CanSendHandler()
 
     def PrintAllDataHandler(self):
-        self.widgetCanMsgPeriod.setText("Msg Period: %d" % int(timeBetweenMsgs))
+        self.widgetCanMsgPeriod.setText("Msg Period: %d ms" % int(timeBetweenMsgs))
         global lastAuth
         if lastAuth:
             self.widgetAuth.setText(f'Auth: OK')
@@ -632,6 +721,15 @@ class MainWindow(QMainWindow):
         self.PrintAllData(data)
 
     def PrintAllData(self, printData):
+
+        onlyGUI = False
+
+        try:
+            if printData == 0:
+                printData = np.zeros(((6, 5, 3)))
+                onlyGUI = True
+        except: pass
+
         self.widgetsAnt1[0].setText("  KEY 1\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[0][0][0], printData[0][0][1], printData[0][0][2]))
         self.widgetsAnt1[1].setText("  KEY 2\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[0][1][0], printData[0][1][1], printData[0][1][2]))
         self.widgetsAnt1[2].setText("  KEY 3\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[0][2][0], printData[0][2][1], printData[0][2][2]))
@@ -668,18 +766,66 @@ class MainWindow(QMainWindow):
         self.widgetsAnt6[3].setText("  KEY 4\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[5][3][0], printData[5][3][1], printData[5][3][2]))
         self.widgetsAnt6[4].setText("  KEY 5\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[5][4][0], printData[5][4][1], printData[5][4][2]))
 
+
+        if onlyGUI:
+            return
+
         # Start from the first cell.
         # Rows and columns are zero indexed.
         global row
         global column
         
-        time_nice_format = time.strftime("%H:%M:%S", time.gmtime())
-        worksheet.write(row, column, 'Time: ')
-        worksheet.write(row+1, column, f'{time_nice_format}')
-    
-        # incrementing the value of row by one
-        # with each iterations.
-        row += 1
+        time_hms = time.strftime("%H:%M:%S", time.localtime())
+        time_dmy = time.strftime("%d/%m/%Y", time.localtime())
+        
+        bold = workbook.add_format({'bold': True})
+
+        worksheet.write(row, column,   'Time: ', bold)
+        worksheet.write(row, column+1, f'{time_hms}')
+        worksheet.write(row, column+2, 'Date: ', bold)
+        worksheet.write(row, column+3, f'{time_dmy}')
+        
+        global lastAuth
+        if lastAuth:
+            worksheet.write(row, column+5, 'Auth OK', bold)
+        else:
+            worksheet.write(row, column+5, 'Auth Fail', bold)
+
+
+        worksheet.write(row+3, column, "KEY 1")
+        worksheet.write(row+4, column, "KEY 2")
+        worksheet.write(row+5, column, "KEY 3")
+        worksheet.write(row+6, column, "KEY 4")
+        worksheet.write(row+7, column, "KEY 5")
+
+        for i in range(5):
+            worksheet.write(row+1, i*4+column+2, f"ANTENNA {i+1}")
+
+            worksheet.write(row+2, i*4+column+1, "RSSI X")
+            worksheet.write(row+2, i*4+column+2, "RSSI Y")
+            worksheet.write(row+2, i*4+column+3, "RSSI Z")
+
+            worksheet.write_number(row+3, i*4+column+1, printData[i][0][0])
+            worksheet.write_number(row+3, i*4+column+2, printData[i][0][1])                 
+            worksheet.write_number(row+3, i*4+column+3, printData[i][0][2])
+
+            worksheet.write_number(row+4, i*4+column+1, printData[i][1][0])
+            worksheet.write_number(row+4, i*4+column+2, printData[i][1][1])                 
+            worksheet.write_number(row+4, i*4+column+3, printData[i][1][2])
+
+            worksheet.write_number(row+5, i*4+column+1, printData[i][2][0])
+            worksheet.write_number(row+5, i*4+column+2, printData[i][2][1])                 
+            worksheet.write_number(row+5, i*4+column+3, printData[i][2][2])
+
+            worksheet.write_number(row+6, i*4+column+1, printData[i][3][0])
+            worksheet.write_number(row+6, i*4+column+2, printData[i][3][1])                 
+            worksheet.write_number(row+6, i*4+column+3, printData[i][3][2])
+
+            worksheet.write_number(row+7, i*4+column+1, printData[i][4][0])
+            worksheet.write_number(row+7, i*4+column+2, printData[i][4][1])                 
+            worksheet.write_number(row+7, i*4+column+3, printData[i][4][2])
+
+        row += 9
 
 
 def BusInitQuick():
@@ -696,10 +842,10 @@ def BusInitQuick():
 
 def BusInit():
     if busInitialized == False:
-        for cnt in range(0, 10):
+        for cnt in range(0, 3):
             if BusInitQuick():
                 break
-            time.sleep(0.3)
+            time.sleep(0.1)
 
 def BusDeInit():
     global bus
@@ -718,7 +864,6 @@ def app_start():
     app = QApplication([])
 
     window = MainWindow()
-    window.show()
 
     timerCanSend = QtCore.QTimer()
     timerCanSend.timeout.connect(window.CanSendHandler)
@@ -727,20 +872,35 @@ def app_start():
     timerCanReceive = QtCore.QTimer()
     timerCanReceive.timeout.connect(window.CanReceiveHandler)
     timerCanReceive.start(100)
-    
-    app.exec()
+    try:
+        app.exec()
+    except: pass
 
-    if busInitialized:
-        bus.shutdown()
+    workbook.close()
+
+    try:
+        if busInitialized:
+            bus.shutdown()
+    except: pass
 
 
 if __name__ == "__main__": 
-    workbook = xlsxwriter.Workbook('All_Data.xlsx')
-    worksheet = workbook.add_worksheet()
-    
+
+    time_hms = time.strftime("%H:%M:%S", time.localtime())
+    time_dmy = time.strftime("%d/%m/%Y", time.localtime())
+
+    try:
+        os.mkdir(f"logs/")
+    except: pass
+
+    try:
+        workbook = xlsxwriter.Workbook(f'logs/Data.xlsx')
+        worksheet = workbook.add_worksheet(name="All_Data")
+        worksheet_single = workbook.add_worksheet(name="Single Data")
+    except:
+        print("Error opening XLS")
+
     app_start() 
-        
-    workbook.close()
 
 
 # TIME STAMP
