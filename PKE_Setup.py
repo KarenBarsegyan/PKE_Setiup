@@ -14,6 +14,8 @@ import numpy as np
 import timeit
 import time
 
+import xlsxwriter
+
 RKE_KEY_NUM_ID        = 0x0111
 
 PKE_ANT1_KEY_1_2_3_ID = 0x0112
@@ -46,6 +48,9 @@ lastMsgTime = 0 #timeit.default_timer()
 firstReceivedMsg = True
 AntMask = 0
 PowerMode = 0
+
+row = 0
+column = 0
 
 class WorkThread(QObject):
     finished = pyqtSignal()
@@ -663,6 +668,19 @@ class MainWindow(QMainWindow):
         self.widgetsAnt6[3].setText("  KEY 4\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[5][3][0], printData[5][3][1], printData[5][3][2]))
         self.widgetsAnt6[4].setText("  KEY 5\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[5][4][0], printData[5][4][1], printData[5][4][2]))
 
+        # Start from the first cell.
+        # Rows and columns are zero indexed.
+        global row
+        global column
+        
+        time_nice_format = time.strftime("%H:%M:%S", time.gmtime())
+        worksheet.write(row, column, 'Time: ')
+        worksheet.write(row+1, column, f'{time_nice_format}')
+    
+        # incrementing the value of row by one
+        # with each iterations.
+        row += 1
+
 
 def BusInitQuick():
     global bus
@@ -696,7 +714,6 @@ def BusDeInit():
         except Exception as exc:
             print("CAN was not deinited: ", exc)
      
-
 def app_start():
     app = QApplication([])
 
@@ -718,12 +735,13 @@ def app_start():
 
 
 if __name__ == "__main__": 
-    app_start()
-    # with can.Bus(interface='systec', channel='0', bitrate=500000) as bus:
-    #     for msg in bus:
-    #         # if msg.arbitration_id == 0x7C3:
-    #         # if msg.arbitration_id == 0x7C4:
-    #         print(msg)
+    workbook = xlsxwriter.Workbook('All_Data.xlsx')
+    worksheet = workbook.add_worksheet()
+    
+    app_start() 
+        
+    workbook.close()
+
 
 # TIME STAMP
 
