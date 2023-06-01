@@ -312,10 +312,11 @@ class MainWindow(QMainWindow):
 
         # Connect signals and slots
         self._CanThread.started.connect(self._CanWorker.Start)
+        self._CanWorker.finished.connect(self._CanThread.quit)
         self._CanWorker.finished.connect(self._CanWorker.deleteLater)
         self._CanThread.finished.connect(self._CanThread.deleteLater)
 
-        self._CanThread.run()
+        self._CanThread.start()
 
     def _BusInitHandler(self):
         self._CanWorker.BusInit()

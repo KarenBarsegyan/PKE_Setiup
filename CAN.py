@@ -341,12 +341,17 @@ class CanSendRecv(QObject):
         #     self.PrintAllData(0) 
 
     def Start(self):
-        print("Init CAN")
-        timerCanSend = QTimer()
-        timerCanSend.timeout.connect(self._CanSendHandler)
-        timerCanSend.start(1000)
+        try:
+            print("Init CAN")
+            timerCanSend = QTimer()
+            timerCanSend.timeout.connect(self._CanSendHandler)
+            timerCanSend.start(1000)
 
-        timerCanReceive = QTimer()
-        timerCanReceive.timeout.connect(self._CanReceiveHandler)
-        timerCanReceive.start(100)
+            timerCanReceive = QTimer()
+            timerCanReceive.timeout.connect(self._CanReceiveHandler)
+            timerCanReceive.start(100)
+        except:
+            print("CAN Task Cancelled")
+        finally:
+            self.finished.emit()
 
