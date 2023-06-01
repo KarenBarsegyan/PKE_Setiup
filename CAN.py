@@ -1,5 +1,5 @@
-from PyQt6.QtCore import QThread, pyqtSignal, QObject
-import can
+from PyQt6.QtCore import QThread, pyqtSignal, QObject, QTimer
+import numpy as np
 
 ###### CAN MSG IDs ######
 RKE_KEY_NUM_ID        = 0x0111
@@ -25,15 +25,26 @@ PKE_ANT6_KEY_3_4_5_ID = 0x011D
 PKE_AUTH_OK_ID        = 0x011E
 
 
-class WorkThread(QObject):
+class CanSendRecv(QObject):
     finished = pyqtSignal()
     canReceivedAll = pyqtSignal()
     keyNumIdReceived = pyqtSignal()
 
     def __init__(self, parent=None):
         QThread.__init__(self, parent)
+        self._busInitialized = False
+        self._data = np.zeros(((6, 5, 3)))
+        self._lastPressedKey = 0
+        self._lastAuth = 0
+        self._isAllReceived = [False]*13
+        self._timeBetweenMsgs = 0
+        self._lastMsgTime = 0
+        self._firstMsgTime = 0
+        self._firstReceivedMsg = True
+        self._AntMask = 0
+        self._PowerMode = 0
 
-    def CanSend(self):
+    def _CanSend(self):
         global AntMask
         global PowerMode
 
@@ -52,7 +63,7 @@ class WorkThread(QObject):
 
         self.finished.emit()
         
-    def CanReceive(self):
+    def _CanReceive(self):
         while True:
             try:
                 msg = bus.recv(0.01)
@@ -265,3 +276,77 @@ class WorkThread(QObject):
             self.canReceivedAll.emit()
 
         self.finished.emit()
+
+    # def _BusInitQuick(self):
+    #     global bus
+    #     global busInitialized
+    #     try:
+    #         bus = can.Bus(interface='systec', channel='0', bitrate=500000)
+    #         busInitialized = True
+    #         print("CAN was inited!")
+    #         return True
+    #     except Exception as exc:
+    #         print("CAN was not inited: ", exc)
+    #         return False
+
+    def BusInit(self):
+        print("CAN Bus Init")
+        # if busInitialized == False:
+        #     for cnt in range(0, 3):
+        #         if BusInitQuick():
+        #             break
+        #         time.sleep(0.1)
+
+    def BusDeInit(self):
+        print("CAN Bus DeInit")
+        # global bus
+        # global busInitialized
+        # if busInitialized == True:
+        #     busInitialized = False
+        #     try:
+        #         bus.shutdown()
+        #         # del self.bus
+        #         # self.widgetUsbState.setText("Systec Disconnected")
+        #         print("CAN was deinited!")
+        #     except Exception as exc:
+        #         print("CAN was not deinited: ", exc)
+
+    def _CanSendHandler(self):
+        print("CAN Send Handler")
+        # Check if Systec is connected
+        # if busInitialized and not self.CanThread.isRunning():
+        #     global AntMask
+        #     AntMask = 0
+        #     for nCnt in range(0, len(self.widgetCheckBox)):
+        #         if self.widgetCheckBox[nCnt].isChecked():
+        #             AntMask |= 1 << nCnt
+            
+        #     # Start the thread
+        #     self.sendThread.start()
+
+    def _CanReceiveHandler(self):
+        print("CAN Recv Handler")
+        # Check if Systec is connected
+        # if busInitialized and not self.receiveThread.isRunning():
+        #     self.widgetUsbState.setText("Systec Connected")
+        #     # Start the thread
+        #     self.receiveThread.start()
+        # else:
+        #     self.widgetUsbState.setText("Systec Disconnected")
+        #     self.widgetCanMsgPeriod.setText("Msg Period: %d" % int(0))
+        #     global firstReceivedMsg
+        #     firstReceivedMsg = True
+        #     global data
+        #     data = np.zeros(((6, 5, 3)))
+        #     self.PrintAllData(0) 
+
+    def Start(self):
+        print("Init CAN")
+        timerCanSend = QTimer()
+        timerCanSend.timeout.connect(self._CanSendHandler)
+        timerCanSend.start(1000)
+
+        timerCanReceive = QTimer()
+        timerCanReceive.timeout.connect(self._CanReceiveHandler)
+        timerCanReceive.start(100)
+

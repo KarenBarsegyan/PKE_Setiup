@@ -5,53 +5,42 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSize, QThread
 from PyQt6 import QtCore
-
-import can
 import numpy as np
-
 import time
-
 import xlsxwriter
-
 import os
-
-
-
-##### Constants #####
-busInitialized = False
-data = np.zeros(((6, 5, 3)))
-lastPressedKey = 0
-lastAuth = 0
-isAllReceived = [False]*13
-timeBetweenMsgs = 0
-lastMsgTime = 0
-firstMsgTime = 0
-firstReceivedMsg = True
-AntMask = 0
-PowerMode = 0
-row = 0
-column = 0
-row_single = 0
-column_single = 0
-      
+from CAN import CanSendRecv
+    
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
-        
-        self.SetApp()
-        BusInitQuick()
-        self.CanReceiveInit()
-        self.CanSendInit()
+
+        self._Initworksheet()
+        self._SetApp()
+        self._CanInit()
+ 
+    def _Initworksheet(self):
+        self._row = 0
+        self._row = 0
+        self._row_single = 0
+        self._row_single = 0
     
-    def SetApp(self):
+        try:
+            self._workbook = xlsxwriter.Workbook(f'logs/Data.xlsx')
+            self._worksheet = self._workbook.add_worksheet(name="All_Data")
+            self._worksheet_single = self._workbook.add_worksheet(name="Single Data")
+        except:
+            print("Error opening XLS")
+
+    def _SetApp(self):
         self.setWindowTitle("PKE Setup")
         self.setMinimumSize(QSize(1100, 700))
         self.setMaximumSize(QSize(1500, 1000))
 
-        # Set general Horizontal structure of GUI of 7 columns
-        layoutBig = QHBoxLayout()
-        layoutLocal = [
+        # Set general Horizontal structure of GUI of 7 self._rows
+        self._layoutBig = QHBoxLayout()
+        self._layoutLocal = [
             QVBoxLayout(),
             QVBoxLayout(),
             QVBoxLayout(),
@@ -61,13 +50,8 @@ class MainWindow(QMainWindow):
             QVBoxLayout()
         ]
 
-        layoutBig.addLayout(layoutLocal[0])
-        layoutBig.addLayout(layoutLocal[1])
-        layoutBig.addLayout(layoutLocal[2])
-        layoutBig.addLayout(layoutLocal[3])
-        layoutBig.addLayout(layoutLocal[4])
-        layoutBig.addLayout(layoutLocal[5])
-        layoutBig.addLayout(layoutLocal[6])
+        for i in range(7):
+            self._layoutBig.addLayout(self._layoutLocal[i])
 
         # Fill first 6 Horizontal structures of GUI with vertical Ant stuctures
         widgetsAnts = [
@@ -86,94 +70,108 @@ class MainWindow(QMainWindow):
             w.setFont(font)
             w.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
-            layoutLocal[cnt].addWidget(w)
+            self._layoutLocal[cnt].addWidget(w)
             cnt += 1
 
-        # Fill the last Horizontal structure of GUI with vertical stuctures of different widgets
+        self._SetCAN()
+        self._SetAdditionalData()
+        # self._SetLogs()
+        # self._SetCheckBox()
+        self._SetAntsData()
+        
+        widget = QWidget()
+        widget.setLayout(self._layoutBig)
+        self.setCentralWidget(widget)
 
+        self.show()
+
+    def _SetCAN(self):
         # Set USB port state Label
-        self.widgetUsbState = QLabel("Systec Disconnected")
-        font = self.widgetUsbState.font()
+        widgetUsbState = QLabel("Systec Disconnected")
+        font = widgetUsbState.font()
         font.setPointSize(12)
-        self.widgetUsbState.setFont(font)
-        self.widgetUsbState.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        layoutLocal[6].addWidget(self.widgetUsbState)
+        widgetUsbState.setFont(font)
+        widgetUsbState.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self._layoutLocal[6].addWidget(widgetUsbState)
 
         # Set USB port connect button Label
-        self.widgetUsbConnect = QPushButton("Connect")
-        font = self.widgetUsbConnect.font()
+        widgetUsbConnect = QPushButton("Connect")
+        font = widgetUsbConnect.font()
         font.setPointSize(12)
-        self.widgetUsbConnect.setFont(font)
-        layoutLocal[6].addWidget(self.widgetUsbConnect)
-        self.widgetUsbConnect.clicked.connect(self.BusInitHandler)
+        widgetUsbConnect.setFont(font)
+        self._layoutLocal[6].addWidget(widgetUsbConnect)
+        widgetUsbConnect.clicked.connect(self._BusInitHandler)
 
         # Set USB port connect button Label
-        self.widgetUsbDisConnect = QPushButton("Disconnect")
-        font = self.widgetUsbDisConnect.font()
+        widgetUsbDisConnect = QPushButton("Disconnect")
+        font = widgetUsbDisConnect.font()
         font.setPointSize(12)
-        self.widgetUsbDisConnect.setFont(font)
-        layoutLocal[6].addWidget(self.widgetUsbDisConnect)
-        self.widgetUsbDisConnect.clicked.connect(self.BusDeInitHandler)
+        widgetUsbDisConnect.setFont(font)
+        self._layoutLocal[6].addWidget(widgetUsbDisConnect)
+        widgetUsbDisConnect.clicked.connect(self._BusDeInitHandler)
 
         # Set msg receiving Period Label
-        self.widgetCanMsgPeriod = QLabel("Msg Period: 0")
-        font = self.widgetCanMsgPeriod.font()
+        widgetCanMsgPeriod = QLabel("Msg Period: 0")
+        font = widgetCanMsgPeriod.font()
         font.setPointSize(12)
-        self.widgetCanMsgPeriod.setFont(font)
-        self.widgetCanMsgPeriod.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        layoutLocal[6].addWidget(self.widgetCanMsgPeriod)
+        widgetCanMsgPeriod.setFont(font)
+        widgetCanMsgPeriod.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self._layoutLocal[6].addWidget(widgetCanMsgPeriod)
 
+    def _SetAdditionalData(self):
         # Set last key with pressed button num
-        self.widgetLastKeyNum = QLabel("Last Key Pressed Num: None\t")
-        font = self.widgetLastKeyNum.font()
+        widgetLastKeyNum = QLabel("Last Key Pressed Num: None\t")
+        font = widgetLastKeyNum.font()
         font.setPointSize(12)
-        self.widgetLastKeyNum.setFont(font)
-        self.widgetLastKeyNum.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        layoutLocal[6].addWidget(self.widgetLastKeyNum)
+        widgetLastKeyNum.setFont(font)
+        widgetLastKeyNum.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self._layoutLocal[6].addWidget(widgetLastKeyNum)
 
         # Set was auth OK or not
-        self.widgetAuth = QLabel("Auth: None\t") 
-        font = self.widgetAuth.font()
+        widgetAuth = QLabel("Auth: None\t") 
+        font = widgetAuth.font()
         font.setPointSize(20)
-        self.widgetAuth.setFont(font)
-        self.widgetAuth.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        layoutLocal[6].addWidget(self.widgetAuth)
+        widgetAuth.setFont(font)
+        widgetAuth.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self._layoutLocal[6].addWidget(widgetAuth)
 
         # # Set Change Power Mode button Label
-        # self.widgetChMode = QPushButton("Change Power Mode")
-        # font = self.widgetChMode.font()
+        # widgetChMode = QPushButton("Change Power Mode")
+        # font = widgetChMode.font()
         # font.setPointSize(12)
-        # self.widgetChMode.setFont(font)
-        # # layoutLocal[6].addWidget(self.widgetChMode)
+        # widgetChMode.setFont(font)
+        # # layoutLocal[6].addWidget(widgetChMode)
         # # self.widgetChMode.clicked.connect(self.ChangeModeHandler)
 
         # # Show Power Mode
-        # self.widgetPwrMode = QLabel("Power Mode: Normal")
-        # font = self.widgetPwrMode.font()
+        # widgetPwrMode = QLabel("Power Mode: Normal")
+        # font = widgetPwrMode.font()
         # font.setPointSize(12)
-        # self.widgetPwrMode.setFont(font)
-        # self.widgetPwrMode.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        # layoutLocal[6].addWidget(self.widgetPwrMode)
+        # widgetPwrMode.setFont(font)
+        # widgetPwrMode.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        # self._layoutLocal[6].addWidget(widgetPwrMode)
 
+    def _SetLogs(self):
         # Get log msg
-        self.widgetLogMsg = QLineEdit()
-        font = self.widgetLogMsg.font()
+        widgetLogMsg = QLineEdit()
+        font = widgetLogMsg.font()
         font.setPointSize(12)
-        self.widgetLogMsg.setFont(font)
-        self.widgetLogMsg.setMaximumHeight(200)
-        self.widgetLogMsg.setMaximumWidth(300)
-        layoutLocal[6].addWidget(self.widgetLogMsg)
+        widgetLogMsg.setFont(font)
+        widgetLogMsg.setMaximumHeight(200)
+        widgetLogMsg.setMaximumWidth(300)
+        self._layoutLocal[6].addWidget(self.widgetLogMsg)
 
         # Set button to send log
-        self.widgetAddLog = QPushButton("Add LOG")
-        font = self.widgetAddLog.font()
+        widgetAddLog = QPushButton("Add LOG")
+        font = widgetAddLog.font()
         font.setPointSize(12)
-        self.widgetAddLog.setFont(font)
-        layoutLocal[6].addWidget(self.widgetAddLog)
-        self.widgetAddLog.clicked.connect(self.AddLogHandler)
+        widgetAddLog.setFont(font)
+        self._layoutLocal[6].addWidget(widgetAddLog)
+        widgetAddLog.clicked.connect(self.AddLogHandler)
 
+    def _SetCheckBox(self):
 
-        self.layoutCheckAndLabel = [
+        layoutCheckAndLabel = [
             QHBoxLayout(),
             QHBoxLayout(),
             QHBoxLayout(),
@@ -182,7 +180,7 @@ class MainWindow(QMainWindow):
             QHBoxLayout()
         ]
 
-        self.widgetCheckBox = [
+        widgetCheckBox = [
             QCheckBox(),
             QCheckBox(),
             QCheckBox(),
@@ -191,7 +189,7 @@ class MainWindow(QMainWindow):
             QCheckBox()
         ]
 
-        self.widgetAntNumCheckBox = [
+        widgetAntNumCheckBox = [
             QLabel("ANT 1\t"),
             QLabel("ANT 2\t"),
             QLabel("ANT 3\t"),
@@ -200,21 +198,23 @@ class MainWindow(QMainWindow):
             QLabel("ANT 6\t")
         ]
 
-        for nCnt in range(0, len(self.layoutCheckAndLabel)):
-            font = self.widgetAntNumCheckBox[nCnt].font()
+        for nCnt in range(0, len(layoutCheckAndLabel)):
+            font = widgetAntNumCheckBox[nCnt].font()
             font.setPointSize(11)
-            self.widgetAntNumCheckBox[nCnt].setFont(font)
-            self.widgetAntNumCheckBox[nCnt].setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            self.widgetCheckBox[nCnt].setChecked(True)
-            self.widgetCheckBox[nCnt].stateChanged.connect(self.CanSendHandler)
+            widgetAntNumCheckBox[nCnt].setFont(font)
+            widgetAntNumCheckBox[nCnt].setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            widgetCheckBox[nCnt].setChecked(True)
+            widgetCheckBox[nCnt].stateChanged.connect(self.CanSendHandler)
 
-            self.layoutCheckAndLabel[nCnt].addWidget(self.widgetCheckBox[nCnt])
-            self.layoutCheckAndLabel[nCnt].addWidget(self.widgetAntNumCheckBox[nCnt])
+            layoutCheckAndLabel[nCnt].addWidget(widgetCheckBox[nCnt])
+            layoutCheckAndLabel[nCnt].addWidget(widgetAntNumCheckBox[nCnt])
 
-        for l in self.layoutCheckAndLabel:
-            layoutLocal[6].addLayout(l)
+        for l in layoutCheckAndLabel:
+            self._layoutLocal[6].addLayout(l)
 
-        self.widgetsAnt1 = [
+    def _SetAntsData(self):
+        
+        widgetsAnt1 = [
             QLabel("  KEY 1\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 2\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 3\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
@@ -222,14 +222,14 @@ class MainWindow(QMainWindow):
             QLabel("  KEY 5\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0))
         ]
 
-        for w in self.widgetsAnt1:
+        for w in widgetsAnt1:
             font = w.font()
             font.setPointSize(14)
             w.setFont(font)
             w.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            layoutLocal[0].addWidget(w)
+            self._layoutLocal[0].addWidget(w)
 
-        self.widgetsAnt2 = [
+        widgetsAnt2 = [
             QLabel("  KEY 1\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 2\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 3\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
@@ -237,14 +237,14 @@ class MainWindow(QMainWindow):
             QLabel("  KEY 5\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0))
         ]
 
-        for w in self.widgetsAnt2:
+        for w in widgetsAnt2:
             font = w.font()
             font.setPointSize(14)
             w.setFont(font)
             w.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            layoutLocal[1].addWidget(w)
+            self._layoutLocal[1].addWidget(w)
 
-        self.widgetsAnt3 = [
+        widgetsAnt3 = [
             QLabel("  KEY 1\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 2\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 3\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
@@ -252,14 +252,14 @@ class MainWindow(QMainWindow):
             QLabel("  KEY 5\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0))
         ]
 
-        for w in self.widgetsAnt3:
+        for w in widgetsAnt3:
             font = w.font()
             font.setPointSize(14)
             w.setFont(font)
             w.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            layoutLocal[2].addWidget(w)
+            self._layoutLocal[2].addWidget(w)
 
-        self.widgetsAnt4 = [
+        widgetsAnt4 = [
             QLabel("  KEY 1\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 2\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 3\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
@@ -267,14 +267,14 @@ class MainWindow(QMainWindow):
             QLabel("  KEY 5\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0))
         ]
 
-        for w in self.widgetsAnt4:
+        for w in widgetsAnt4:
             font = w.font()
             font.setPointSize(14)
             w.setFont(font)
             w.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            layoutLocal[3].addWidget(w)
+            self._layoutLocal[3].addWidget(w)
 
-        self.widgetsAnt5 = [
+        widgetsAnt5 = [
             QLabel("  KEY 1\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 2\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 3\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
@@ -282,14 +282,14 @@ class MainWindow(QMainWindow):
             QLabel("  KEY 5\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0))
         ]
 
-        for w in self.widgetsAnt5:
+        for w in widgetsAnt5:
             font = w.font()
             font.setPointSize(14)
             w.setFont(font)
             w.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            layoutLocal[4].addWidget(w)
+            self._layoutLocal[4].addWidget(w)
 
-        self.widgetsAnt6 = [
+        widgetsAnt6 = [
             QLabel("  KEY 1\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 2\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
             QLabel("  KEY 3\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0)),
@@ -297,175 +297,71 @@ class MainWindow(QMainWindow):
             QLabel("  KEY 5\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(0, 0, 0))
         ]
 
-        for w in self.widgetsAnt6:
+        for w in widgetsAnt6:
             font = w.font()
             font.setPointSize(14)
             w.setFont(font)
             w.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            layoutLocal[5].addWidget(w)
+            self._layoutLocal[5].addWidget(w)
 
-
-        widget = QWidget()
-        widget.setLayout(layoutBig)
-        self.setCentralWidget(widget)
-
-        self.show()
-
-    def CanSendInit(self):
+    def _CanInit(self):
         # Create a QThread and Worker object
-        self.sendThread = QThread()
-        self.sendWorker = WorkThread()
-        self.sendWorker.moveToThread(self.sendThread)
+        self._CanThread = QThread()
+        self._CanWorker = CanSendRecv()
+        self._CanWorker.moveToThread(self._CanThread)
 
         # Connect signals and slots
-        self.sendThread.started.connect (self.sendWorker.CanSend)
-        # self.sendWorker.finished.connect(self.sendWorker.deleteLater)
-        # self.sendThread.finished.connect(self.sendThread.deleteLater)
-        self.sendWorker.finished.connect(self.sendThread.quit)
+        self._CanThread.started.connect(self._CanWorker.Start)
+        self._CanWorker.finished.connect(self._CanWorker.deleteLater)
+        self._CanThread.finished.connect(self._CanThread.deleteLater)
 
-    def CanReceiveInit(self):
-        # Create a QThread and Worker object
-        self.receiveThread = QThread()
-        self.receiveWorker = WorkThread()
-        self.receiveWorker.moveToThread(self.receiveThread)
+        self._CanThread.run()
 
-        # Connect signals and slots
-        self.receiveThread.started.connect (self.receiveWorker.CanReceive)
-        self.receiveWorker.canReceivedAll.connect(self.PrintAllDataHandler)
-        self.receiveWorker.keyNumIdReceived.connect(self.LastKeyIdUpdate)
-        # self.receiveWorker.finished.connect(self.receiveWorker.deleteLater)
-        # self.receiveThread.finished.connect(self.receiveThread.deleteLater)
-        self.receiveWorker.finished.connect(self.receiveThread.quit)
+    def _BusInitHandler(self):
+        self._CanWorker.BusInit()
 
-    def CanSendHandler(self):
-        # Check if Systec is connected
-        if busInitialized and not self.sendThread.isRunning():
-            global AntMask
-            AntMask = 0
-            for nCnt in range(0, len(self.widgetCheckBox)):
-                if self.widgetCheckBox[nCnt].isChecked():
-                    AntMask |= 1 << nCnt
-            
-            # Start the thread
-            self.sendThread.start()
+    def _BusDeInitHandler(self):
+        self._CanWorker.BusDeInit()
 
-    def CanReceiveHandler(self):
-        # Check if Systec is connected
-        if busInitialized and not self.receiveThread.isRunning():
-            self.widgetUsbState.setText("Systec Connected")
-            # Start the thread
-            self.receiveThread.start()
-        else:
-            self.widgetUsbState.setText("Systec Disconnected")
-            self.widgetCanMsgPeriod.setText("Msg Period: %d" % int(0))
-            global firstReceivedMsg
-            firstReceivedMsg = True
-            global data
-            data = np.zeros(((6, 5, 3)))
-            self.PrintAllData(0) 
+    # def _LastKeyIdUpdate(self):
+    #     self.widgetLastKeyNum.setText("Last Key Pressed Num: %d\t\t" % lastPressedKey)
 
-    def LastKeyIdUpdate(self):
-        self.widgetLastKeyNum.setText("Last Key Pressed Num: %d\t\t" % lastPressedKey)
+    # def _AddLogHandler(self):
+    #     self.AddLog(self.CanWorker.Data)
 
-    def BusInitHandler(self):
-        BusInit()
+    # def _ChangeModeHandler(self):
+    #     global PowerMode
 
-    def BusDeInitHandler(self):
-        BusDeInit()
-
-    def AddLogHandler(self):
-        self.AddLog(data)
-
-    def AddLog(self, printData):
-        global row_single
-        global column_single
-
-        time_hms = time.strftime("%H:%M:%S", time.localtime())
-        time_dmy = time.strftime("%d/%m/%Y", time.localtime())
+    #     if PowerMode == 0:
+    #         PowerMode = 1 #PowerDown
+    #         self.widgetPwrMode.setText("Power Mode: Power Down")
+    #     else:
+    #         PowerMode = 0 #Normal Mode
+    #         self.widgetPwrMode.setText("Power Mode: Normal")
         
-        bold = workbook.add_format({'bold': True})
+    #     self.CanSendHandler()
 
-        worksheet_single.write(row_single, column_single,   'Time: ', bold)
-        worksheet_single.write(row_single, column_single+1, f'{time_hms}')
-        worksheet_single.write(row_single, column_single+2, 'Date: ', bold)
-        worksheet_single.write(row_single, column_single+3, f'{time_dmy}')
 
-        global lastAuth
-        if lastAuth:
-            worksheet_single.write(row_single, column_single+5, 'Auth OK', bold)
-        else:
-            worksheet_single.write(row_single, column_single+5, 'Auth Fail', bold)
-
-        msg = self.widgetLogMsg.text()
-        worksheet_single.write(row_single, column_single+7, 'Message: ', bold)
-        worksheet_single.write(row_single, column_single+8, f'{msg}')
-
-        worksheet_single.write(row_single+3, column_single, "KEY 1")
-        worksheet_single.write(row_single+4, column_single, "KEY 2")
-        worksheet_single.write(row_single+5, column_single, "KEY 3")
-        worksheet_single.write(row_single+6, column_single, "KEY 4")
-        worksheet_single.write(row_single+7, column_single, "KEY 5")
-
-        for i in range(5):
-            worksheet_single.write(row_single+1, i*4+column_single+2, f"ANTENNA {i+1}")
-
-            worksheet_single.write(row_single+2, i*4+column_single+1, "RSSI X")
-            worksheet_single.write(row_single+2, i*4+column_single+2, "RSSI Y")
-            worksheet_single.write(row_single+2, i*4+column_single+3, "RSSI Z")
-
-            worksheet_single.write_number(row_single+3, i*4+column_single+1, printData[i][0][0])
-            worksheet_single.write_number(row_single+3, i*4+column_single+2, printData[i][0][1])                 
-            worksheet_single.write_number(row_single+3, i*4+column_single+3, printData[i][0][2])
-
-            worksheet_single.write_number(row_single+4, i*4+column_single+1, printData[i][1][0])
-            worksheet_single.write_number(row_single+4, i*4+column_single+2, printData[i][1][1])                 
-            worksheet_single.write_number(row_single+4, i*4+column_single+3, printData[i][1][2])
-
-            worksheet_single.write_number(row_single+5, i*4+column_single+1, printData[i][2][0])
-            worksheet_single.write_number(row_single+5, i*4+column_single+2, printData[i][2][1])                 
-            worksheet_single.write_number(row_single+5, i*4+column_single+3, printData[i][2][2])
-
-            worksheet_single.write_number(row_single+6, i*4+column_single+1, printData[i][3][0])
-            worksheet_single.write_number(row_single+6, i*4+column_single+2, printData[i][3][1])                 
-            worksheet_single.write_number(row_single+6, i*4+column_single+3, printData[i][3][2])
-
-            worksheet_single.write_number(row_single+7, i*4+column_single+1, printData[i][4][0])
-            worksheet_single.write_number(row_single+7, i*4+column_single+2, printData[i][4][1])                 
-            worksheet_single.write_number(row_single+7, i*4+column_single+3, printData[i][4][2])
-
-        row_single += 9
-
-    def ChangeModeHandler(self):
-        global PowerMode
-
-        if PowerMode == 0:
-            PowerMode = 1 #PowerDown
-            self.widgetPwrMode.setText("Power Mode: Power Down")
-        else:
-            PowerMode = 0 #Normal Mode
-            self.widgetPwrMode.setText("Power Mode: Normal")
-        
-        self.CanSendHandler()
-
-    def PrintAllDataHandler(self):
-        self.widgetCanMsgPeriod.setText("Msg Period: %d ms" % int(timeBetweenMsgs))
-        global lastAuth
-        if lastAuth:
-            self.widgetAuth.setText(f'Auth: OK')
-        else:
-            self.widgetAuth.setText(f'Auth: Fail')
-
-        self.PrintAllData(data)
-
-    def PrintAllData(self, printData):
-
+    def _PrintData(self, Data):
         onlyGUI = False
-
         try:
             if printData == 0:
                 printData = np.zeros(((6, 5, 3)))
                 onlyGUI = True
         except: pass
+
+        self._PrintScreenData(Data)
+
+        # if not onlyGUI:
+        #     self._PrintLogData(Data)
+
+    def _PrintScreenData(self, printData):
+        self.widgetCanMsgPeriod.setText("Msg Period: %d ms" % int(timeBetweenMsgs))
+
+        if self.CanWorker.AuthStatus:
+            self.widgetAuth.setText(f'Auth: OK')
+        else:
+            self.widgetAuth.setText(f'Auth: Fail')
 
         self.widgetsAnt1[0].setText("  KEY 1\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[0][0][0], printData[0][0][1], printData[0][0][2]))
         self.widgetsAnt1[1].setText("  KEY 2\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[0][1][0], printData[0][1][1], printData[0][1][2]))
@@ -502,140 +398,134 @@ class MainWindow(QMainWindow):
         self.widgetsAnt6[2].setText("  KEY 3\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[5][2][0], printData[5][2][1], printData[5][2][2]))
         self.widgetsAnt6[3].setText("  KEY 4\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[5][3][0], printData[5][3][1], printData[5][3][2]))
         self.widgetsAnt6[4].setText("  KEY 5\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[5][4][0], printData[5][4][1], printData[5][4][2]))
-
-
-        if onlyGUI:
-            return
-
-        # Start from the first cell.
-        # Rows and columns are zero indexed.
-        global row
-        global column
-        
+    
+    def _PrintLogData(self, printData): 
         time_hms = time.strftime("%H:%M:%S", time.localtime())
         time_dmy = time.strftime("%d/%m/%Y", time.localtime())
         
-        bold = workbook.add_format({'bold': True})
+        bold = self._workbook.add_format({'bold': True})
 
-        worksheet.write(row, column,   'Time: ', bold)
-        worksheet.write(row, column+1, f'{time_hms}')
-        worksheet.write(row, column+2, 'Date: ', bold)
-        worksheet.write(row, column+3, f'{time_dmy}')
+        self._worksheet.write(self._row, self._row,   'Time: ', bold)
+        self._worksheet.write(self._row, self._row+1, f'{time_hms}')
+        self._worksheet.write(self._row, self._row+2, 'Date: ', bold)
+        self._worksheet.write(self._row, self._row+3, f'{time_dmy}')
         
-        global lastAuth
-        if lastAuth:
-            worksheet.write(row, column+5, 'Auth OK', bold)
+        if self.CanWorker.AuthStatus:
+            self._worksheet.write(self._row, self._row+5, 'Auth OK', bold)
         else:
-            worksheet.write(row, column+5, 'Auth Fail', bold)
+            self._worksheet.write(self._row, self._row+5, 'Auth Fail', bold)
 
 
-        worksheet.write(row+3, column, "KEY 1")
-        worksheet.write(row+4, column, "KEY 2")
-        worksheet.write(row+5, column, "KEY 3")
-        worksheet.write(row+6, column, "KEY 4")
-        worksheet.write(row+7, column, "KEY 5")
+        self._worksheet.write(self._row+3, self._row, "KEY 1")
+        self._worksheet.write(self._row+4, self._row, "KEY 2")
+        self._worksheet.write(self._row+5, self._row, "KEY 3")
+        self._worksheet.write(self._row+6, self._row, "KEY 4")
+        self._worksheet.write(self._row+7, self._row, "KEY 5")
 
         for i in range(5):
-            worksheet.write(row+1, i*4+column+2, f"ANTENNA {i+1}")
+            self._worksheet.write(self._row+1, i*4+self._row+2, f"ANTENNA {i+1}")
 
-            worksheet.write(row+2, i*4+column+1, "RSSI X")
-            worksheet.write(row+2, i*4+column+2, "RSSI Y")
-            worksheet.write(row+2, i*4+column+3, "RSSI Z")
+            self._worksheet.write(self._row+2, i*4+self._row+1, "RSSI X")
+            self._worksheet.write(self._row+2, i*4+self._row+2, "RSSI Y")
+            self._worksheet.write(self._row+2, i*4+self._row+3, "RSSI Z")
 
-            worksheet.write_number(row+3, i*4+column+1, printData[i][0][0])
-            worksheet.write_number(row+3, i*4+column+2, printData[i][0][1])                 
-            worksheet.write_number(row+3, i*4+column+3, printData[i][0][2])
+            self._worksheet.write_number(self._row+3, i*4+self._row+1, printData[i][0][0])
+            self._worksheet.write_number(self._row+3, i*4+self._row+2, printData[i][0][1])                 
+            self._worksheet.write_number(self._row+3, i*4+self._row+3, printData[i][0][2])
 
-            worksheet.write_number(row+4, i*4+column+1, printData[i][1][0])
-            worksheet.write_number(row+4, i*4+column+2, printData[i][1][1])                 
-            worksheet.write_number(row+4, i*4+column+3, printData[i][1][2])
+            self._worksheet.write_number(self._row+4, i*4+self._row+1, printData[i][1][0])
+            self._worksheet.write_number(self._row+4, i*4+self._row+2, printData[i][1][1])                 
+            self._worksheet.write_number(self._row+4, i*4+self._row+3, printData[i][1][2])
 
-            worksheet.write_number(row+5, i*4+column+1, printData[i][2][0])
-            worksheet.write_number(row+5, i*4+column+2, printData[i][2][1])                 
-            worksheet.write_number(row+5, i*4+column+3, printData[i][2][2])
+            self._worksheet.write_number(self._row+5, i*4+self._row+1, printData[i][2][0])
+            self._worksheet.write_number(self._row+5, i*4+self._row+2, printData[i][2][1])                 
+            self._worksheet.write_number(self._row+5, i*4+self._row+3, printData[i][2][2])
 
-            worksheet.write_number(row+6, i*4+column+1, printData[i][3][0])
-            worksheet.write_number(row+6, i*4+column+2, printData[i][3][1])                 
-            worksheet.write_number(row+6, i*4+column+3, printData[i][3][2])
+            self._worksheet.write_number(self._row+6, i*4+self._row+1, printData[i][3][0])
+            self._worksheet.write_number(self._row+6, i*4+self._row+2, printData[i][3][1])                 
+            self._worksheet.write_number(self._row+6, i*4+self._row+3, printData[i][3][2])
 
-            worksheet.write_number(row+7, i*4+column+1, printData[i][4][0])
-            worksheet.write_number(row+7, i*4+column+2, printData[i][4][1])                 
-            worksheet.write_number(row+7, i*4+column+3, printData[i][4][2])
+            self._worksheet.write_number(self._row+7, i*4+self._row+1, printData[i][4][0])
+            self._worksheet.write_number(self._row+7, i*4+self._row+2, printData[i][4][1])                 
+            self._worksheet.write_number(self._row+7, i*4+self._row+3, printData[i][4][2])
 
-        row += 9
+        self._row += 9
 
+    def _PrintSigleLog(self, printData):
+        time_hms = time.strftime("%H:%M:%S", time.localtime())
+        time_dmy = time.strftime("%d/%m/%Y", time.localtime())
+        
+        bold = self._workbook.add_format({'bold': True})
 
-def BusInitQuick():
-    global bus
-    global busInitialized
-    try:
-        bus = can.Bus(interface='systec', channel='0', bitrate=500000)
-        busInitialized = True
-        print("CAN was inited!")
-        return True
-    except Exception as exc:
-        print("CAN was not inited: ", exc)
-        return False
+        self._worksheet_single.write(self._row_single, self._row_single,   'Time: ', bold)
+        self._worksheet_single.write(self._row_single, self._row_single+1, f'{time_hms}')
+        self._worksheet_single.write(self._row_single, self._row_single+2, 'Date: ', bold)
+        self._worksheet_single.write(self._row_single, self._row_single+3, f'{time_dmy}')
 
-def BusInit():
-    if busInitialized == False:
-        for cnt in range(0, 3):
-            if BusInitQuick():
-                break
-            time.sleep(0.1)
+        if self.CanWorker.AuthStatus:
+            self._worksheet_single.write(self._row_single, self._row_single+5, 'Auth OK', bold)
+        else:
+            self._worksheet_single.write(self._row_single, self._row_single+5, 'Auth Fail', bold)
 
-def BusDeInit():
-    global bus
-    global busInitialized
-    if busInitialized == True:
-        busInitialized = False
-        try:
-            bus.shutdown()
-            # del self.bus
-            # self.widgetUsbState.setText("Systec Disconnected")
-            print("CAN was deinited!")
-        except Exception as exc:
-            print("CAN was not deinited: ", exc)
+        msg = self.widgetLogMsg.text()
+        self._worksheet_single.write(self._row_single, self._row_single+7, 'Message: ', bold)
+        self._worksheet_single.write(self._row_single, self._row_single+8, f'{msg}')
+
+        self._worksheet_single.write(self._row_single+3, self._row_single, "KEY 1")
+        self._worksheet_single.write(self._row_single+4, self._row_single, "KEY 2")
+        self._worksheet_single.write(self._row_single+5, self._row_single, "KEY 3")
+        self._worksheet_single.write(self._row_single+6, self._row_single, "KEY 4")
+        self._worksheet_single.write(self._row_single+7, self._row_single, "KEY 5")
+
+        for i in range(5):
+            self._worksheet_single.write(self._row_single+1, i*4+self._row_single+2, f"ANTENNA {i+1}")
+
+            self._worksheet_single.write(self._row_single+2, i*4+self._row_single+1, "RSSI X")
+            self._worksheet_single.write(self._row_single+2, i*4+self._row_single+2, "RSSI Y")
+            self._worksheet_single.write(self._row_single+2, i*4+self._row_single+3, "RSSI Z")
+
+            self._worksheet_single.write_number(self._row_single+3, i*4+self._row_single+1, printData[i][0][0])
+            self._worksheet_single.write_number(self._row_single+3, i*4+self._row_single+2, printData[i][0][1])                 
+            self._worksheet_single.write_number(self._row_single+3, i*4+self._row_single+3, printData[i][0][2])
+
+            self._worksheet_single.write_number(self._row_single+4, i*4+self._row_single+1, printData[i][1][0])
+            self._worksheet_single.write_number(self._row_single+4, i*4+self._row_single+2, printData[i][1][1])                 
+            self._worksheet_single.write_number(self._row_single+4, i*4+self._row_single+3, printData[i][1][2])
+
+            self._worksheet_single.write_number(self._row_single+5, i*4+self._row_single+1, printData[i][2][0])
+            self._worksheet_single.write_number(self._row_single+5, i*4+self._row_single+2, printData[i][2][1])                 
+            self._worksheet_single.write_number(self._row_single+5, i*4+self._row_single+3, printData[i][2][2])
+
+            self._worksheet_single.write_number(self._row_single+6, i*4+self._row_single+1, printData[i][3][0])
+            self._worksheet_single.write_number(self._row_single+6, i*4+self._row_single+2, printData[i][3][1])                 
+            self._worksheet_single.write_number(self._row_single+6, i*4+self._row_single+3, printData[i][3][2])
+
+            self._worksheet_single.write_number(self._row_single+7, i*4+self._row_single+1, printData[i][4][0])
+            self._worksheet_single.write_number(self._row_single+7, i*4+self._row_single+2, printData[i][4][1])                 
+            self._worksheet_single.write_number(self._row_single+7, i*4+self._row_single+3, printData[i][4][2])
+
+        self._row_single += 9
      
+
 def app_start():
     app = QApplication([])
 
     window = MainWindow()
 
-    timerCanSend = QtCore.QTimer()
-    timerCanSend.timeout.connect(window.CanSendHandler)
-    timerCanSend.start(1000)
-
-    timerCanReceive = QtCore.QTimer()
-    timerCanReceive.timeout.connect(window.CanReceiveHandler)
-    timerCanReceive.start(100)
     try:
         app.exec()
     except: pass
 
-    workbook.close()
-
-    try:
-        if busInitialized:
-            bus.shutdown()
-    except: pass
-
+    # workbook.close()
 
 if __name__ == "__main__": 
 
-    time_hms = time.strftime("%H:%M:%S", time.localtime())
-    time_dmy = time.strftime("%d/%m/%Y", time.localtime())
+    # time_hms = time.strftime("%H:%M:%S", time.localtime())
+    # time_dmy = time.strftime("%d/%m/%Y", time.localtime())
 
-    try:
-        os.mkdir(f"logs/")
-    except: pass
-
-    try:
-        workbook = xlsxwriter.Workbook(f'logs/Data.xlsx')
-        worksheet = workbook.add_worksheet(name="All_Data")
-        worksheet_single = workbook.add_worksheet(name="Single Data")
-    except:
-        print("Error opening XLS")
+    # try:
+    #     os.mkdir(f"logs/")
+    # except: pass
 
     app_start() 
 
