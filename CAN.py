@@ -42,78 +42,79 @@ class CanSendRecv(QThread):
     finished = pyqtSignal()
     canInited = pyqtSignal()
     canDeInited = pyqtSignal()
-    canReceivedAll = pyqtSignal()
-    keyNumIdReceived = pyqtSignal()
+    canReceivedAll = pyqtSignal(bool)
+    keyNumIdReceived = pyqtSignal(int)
 
     def __init__(self, parent=None):
         QThread.__init__(self, parent)
         self._busInitialized = False
         self._data = np.zeros(((6, 5, 3)))
-        self._lastPressedKey = 0
         self._lastAuth = 0
         self._isAllReceived = [False]*13
         self._timeBetweenMsgs = 0
         self._lastMsgTime = 0
         self._firstMsgTime = 0
         self._firstReceivedMsg = True
-        self._AntMask = 0
+        self._AntMask = 0x3F
         self._PowerMode = 0
 
     def _CanSend(self):
-        if self._busInitialized:
-            print("Send")
-            print("A")
-            self._AntMask
-            msg_to_send = can.Message(
-                arbitration_id=0x0211,
-                data=[self._AntMask, self._PowerMode, 0, 0, 0, 0, 0, 0],
-                is_extended_id = False
-            )
-            
-            try:
-                self._bus.send(msg_to_send)
-            except Exception as exc:
-                logger.warning("CAN didn't send: ", exc)
-                self.BusDeInit()
-
+        try:
+            if self._busInitialized:
+                self._AntMask
+                msg_to_send = can.Message(
+                    arbitration_id=0x0211,
+                    data=[self._AntMask, self._PowerMode, 0, 0, 0, 0, 0, 0],
+                    is_extended_id = False
+                )
+                
+                try:
+                    self._bus.send(msg_to_send)
+                except Exception as exc:
+                    logger.warning(f"CAN didn't send: {exc}")
+                    self.BusDeInit()
+        except Exception as exc:
+            logger.warning(f"CanSend error: {exc}")
         
     def _CanReceive(self):
-        if self._busInitialized:
-            while True:
-                try:
-                    msg = self._bus.recv(0.01)
-                except Exception as exc:
-                    logger.warning("Can did't receive: ", exc)
-                    self._BusDeInit()
-                    break
+        try:
+            if self._busInitialized:
+                while True:
+                    try:
+                        msg = self._bus.recv(0.01)
+                    except Exception as exc:
+                        logger.warning(f"Can did't receive: {exc}")
+                        self._BusDeInit()
+                        break
 
-                if msg == None:
-                    break
+                    if msg == None:
+                        break
 
-                self._lastMsgTime = msg.timestamp
+                    self._lastMsgTime = msg.timestamp
 
-                self._ParseData(msg)
+                    self._ParseData(msg)
 
-            isAllDone = True
-            for cnt in self._isAllReceived:
-                if not cnt:
-                    isAllDone = False
-                    break
-            
-            if isAllDone:
-                if (self._firstReceivedMsg == False):
-                    self._timeBetweenMsgs = (self._lastMsgTime - self._firstMsgTime)*1000
-                else:
-                    self._timeBetweenMsgs = 0
-                    self._firstReceivedMsg = False
+                isAllDone = True
+                for cnt in self._isAllReceived:
+                    if not cnt:
+                        isAllDone = False
+                        break
+                
+                if isAllDone:
+                    if (self._firstReceivedMsg == False):
+                        self._timeBetweenMsgs = (self._lastMsgTime - self._firstMsgTime)*1000
+                    else:
+                        self._timeBetweenMsgs = 0
+                        self._firstReceivedMsg = False
 
-                self._firstMsgTime = self._lastMsgTime
+                    self._firstMsgTime = self._lastMsgTime
 
-                for idx in range(0, len(self._isAllReceived)):
-                    self._isAllReceived[idx] = False 
+                    for idx in range(0, len(self._isAllReceived)):
+                        self._isAllReceived[idx] = False 
 
-                self.canReceivedAll.emit()
-
+                    self.canReceivedAll.emit(True)
+        except Exception as exc:
+            logger.warning(f"CanReceive error: {exc}")
 
     @property
     def Data(self):
@@ -133,8 +134,8 @@ class CanSendRecv(QThread):
 
     def _ParseData(self, msg):
         if   msg.arbitration_id == RKE_KEY_NUM_ID:
-            self._lastPressedKey = int(msg.data[0] + 1)
-            self.keyNumIdReceived.emit()
+            lastPressedKey = int(msg.data[0] + 1)
+            self.keyNumIdReceived.emit(lastPressedKey)
 
         elif msg.arbitration_id == PKE_AUTH_OK_ID:
             self._isAllReceived[12] = True
@@ -311,45 +312,58 @@ class CanSendRecv(QThread):
             self._CanSend()
             return True
         except Exception as exc:
-            logger.warning(f"CAN was not inited: {exc}")
+            logger.info(f"CAN was not inited: {exc}")
             return False
 
     def BusInit(self):
-        if self._busInitialized == False:
-            for cnt in range(0, 10):
-                if self._BusInitQuick():
-                    break
-                QApplication.processEvents()
-                time.sleep(0.1)
-        else:
-            logger.info("CAN is already inited!")
+        try:
+            if self._busInitialized == False:
+                for cnt in range(0, 5):
+                    if self._BusInitQuick():
+                        break
+
+                    for cnt in range(0, 5):
+                        QApplication.processEvents()
+                        time.sleep(0.1)
+            else:
+                logger.info("CAN is already inited!")
+        except Exception as exc:
+            logger.warning(f"BusInit error: {exc}")
 
     def BusDeInit(self):
-        if self._busInitialized == True:
-            self._busInitialized = False
-            self.canDeInited.emit()
-            try:
-                self._bus.shutdown()
-                logger.info("CAN was deinited!")
-            except Exception as exc:
-                logger.warning(f"CAN was not deinited: {exc}")
-        else:
-            logger.info("CAN is already not inited!")
+        try:
+            if self._busInitialized == True:
+                self._busInitialized = False
+                self.canDeInited.emit()
+                try:
+                    self._bus.shutdown()
+                    del self._bus
+                    logger.info("CAN was deinited!")
+                except Exception as exc:
+                    logger.warning(f"CAN was not deinited: {exc}")
+            else:
+                logger.info("CAN is already not inited!")
+        except Exception as exc:
+            logger.warning(f"BusDeInit error: {exc}")
 
-    
+    def MainTask(self):
+
+        if self._Counter > 10:
+            self._Counter = 0
+            self._CanSend()
+
+        self._Counter += 1
+
+        self._CanReceive()
+
+        QTimer.singleShot(100, self.MainTask)
 
     def Start(self):
+        logger.info("CAN Task Run")
         try:
             self.BusInit()
-            self._CanSend()
-            self._CanReceive()
 
-            while not self.isInterruptionRequested(): 
-                QApplication.processEvents()
-
-        except:
-            logger.info("CAN Task Cancelled")
-        finally:
-            logger.info("CAN Task finished")
-
-
+            self._Counter = 0
+            self.MainTask()
+        except Exception as exc:
+            logger.warning(f"Start error: {exc}")

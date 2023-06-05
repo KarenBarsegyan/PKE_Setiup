@@ -37,6 +37,7 @@ class MainWindow(QMainWindow):
         try:
             if (self._CanThread.isRunning()):
                 self._CanThread.quit()
+                self._CanThread.wait()
 
             logger.info("CAN thread terminated")
         except:
@@ -57,7 +58,7 @@ class MainWindow(QMainWindow):
 
     def _SetApp(self):
         self.setWindowTitle("PKE Setup")
-        self.setMinimumSize(QSize(1100, 700))
+        self.setMinimumSize(QSize(1500, 1000))
         self.setMaximumSize(QSize(1500, 1000))
 
         # Set general Horizontal structure of GUI of 7 self._rows
@@ -97,7 +98,7 @@ class MainWindow(QMainWindow):
 
         self._SetCAN()
         self._SetAdditionalData()
-        # self._SetLogs()
+        self._SetLogs()
         self._SetCheckBox()
         self._SetAntsData()
         
@@ -134,7 +135,7 @@ class MainWindow(QMainWindow):
         widgetUsbDisConnect.clicked.connect(self._BusDeInitHandler)
 
         # Set msg receiving Period Label
-        self._widgetCanMsgPeriod = QLabel("Msg Period: 0")
+        self._widgetCanMsgPeriod = QLabel("Msg Period: 0 ms")
         font = self._widgetCanMsgPeriod.font()
         font.setPointSize(12)
         self._widgetCanMsgPeriod.setFont(font)
@@ -143,12 +144,12 @@ class MainWindow(QMainWindow):
 
     def _SetAdditionalData(self):
         # Set last key with pressed button num
-        widgetLastKeyNum = QLabel("Last Key Pressed Num: None\t")
-        font = widgetLastKeyNum.font()
+        self._widgetLastKeyNum = QLabel("Last Key Pressed Num: None\t")
+        font = self._widgetLastKeyNum.font()
         font.setPointSize(12)
-        widgetLastKeyNum.setFont(font)
-        widgetLastKeyNum.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        self._layoutLocal[6].addWidget(widgetLastKeyNum)
+        self._widgetLastKeyNum.setFont(font)
+        self._widgetLastKeyNum.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self._layoutLocal[6].addWidget(self._widgetLastKeyNum)
 
         # Set was auth OK or not
         self._widgetAuth = QLabel("Auth: None\t") 
@@ -176,13 +177,13 @@ class MainWindow(QMainWindow):
 
     def _SetLogs(self):
         # Get log msg
-        widgetLogMsg = QLineEdit()
-        font = widgetLogMsg.font()
+        self._widgetLogMsg = QLineEdit()
+        font = self._widgetLogMsg.font()
         font.setPointSize(12)
-        widgetLogMsg.setFont(font)
-        widgetLogMsg.setMaximumHeight(200)
-        widgetLogMsg.setMaximumWidth(300)
-        self._layoutLocal[6].addWidget(self.widgetLogMsg)
+        self._widgetLogMsg.setFont(font)
+        self._widgetLogMsg.setMaximumHeight(200)
+        self._widgetLogMsg.setMaximumWidth(300)
+        self._layoutLocal[6].addWidget(self._widgetLogMsg)
 
         # Set button to send log
         widgetAddLog = QPushButton("Add LOG")
@@ -190,7 +191,7 @@ class MainWindow(QMainWindow):
         font.setPointSize(12)
         widgetAddLog.setFont(font)
         self._layoutLocal[6].addWidget(widgetAddLog)
-        widgetAddLog.clicked.connect(self.AddLogHandler)
+        widgetAddLog.clicked.connect(self._PrintSigleLog)
 
     def _SetCheckBox(self):
         layoutCheckAndLabel = [
@@ -335,10 +336,8 @@ class MainWindow(QMainWindow):
         self._CanThread.started.connect(self._CanWorker.Start)
         self._CanWorker.canInited.connect(self._BusInitedCallback)
         self._CanWorker.canDeInited.connect(self._BusDeInitedCallback)
+        self._CanWorker.keyNumIdReceived.connect(self._LastKeyIdUpdate)
         self._CanWorker.canReceivedAll.connect(self._PrintData)
-        # self._CanWorker.finished.connect(self._CanThread.quit)
-        # self._CanWorker.finished.connect(self._CanWorker.deleteLater)
-        # self._CanThread.finished.connect(self._CanThread.deleteLater)
         
         self._CanThread.start()
 
@@ -355,8 +354,7 @@ class MainWindow(QMainWindow):
 
     def _BusDeInitedCallback(self):
         self._widgetUsbState.setText("Systec Disconnected")
-        self._widgetCanMsgPeriod.setText("Msg Period: %d ms" % int(0))
-        self._PrintData(False) 
+        self._PrintData(False)
         
     def _updateAntMask(self):
         AntMask = 0
@@ -366,13 +364,8 @@ class MainWindow(QMainWindow):
 
         self._CanWorker.SetAntMask(AntMask)
 
-    # def _BusSend(self):
-
-    # def _BusReceive(self):
-
-
-    # def _LastKeyIdUpdate(self):
-    #     self.widgetLastKeyNum.setText("Last Key Pressed Num: %d\t\t" % lastPressedKey)
+    def _LastKeyIdUpdate(self, lastPressedKey):
+        self._widgetLastKeyNum.setText(f"Last Key Pressed Num: {lastPressedKey}\t\t")
 
     # def _AddLogHandler(self):
     #     self.AddLog(self.CanWorker.Data)
@@ -389,27 +382,23 @@ class MainWindow(QMainWindow):
         
     #     self.CanSendHandler()
 
-
     def _PrintData(self, res: bool):
-        onlyGUI = False
         if not res:
-            Data = np.zeros(((6, 5, 3)))
-            onlyGUI = True
+            self._widgetCanMsgPeriod.setText("Msg Period: 0 ms")
+            self._widgetAuth.setText(f'Auth: None\t')
+            self._widgetLastKeyNum.setText(f"Last Key Pressed Num: None\t")
+            printData = np.zeros(((6, 5, 3)))
+
         else:
-            Data = self._CanWorker.Data
+            printData = self._CanWorker.Data
+            self._widgetCanMsgPeriod.setText(f"Msg Period: {int(self._CanWorker.TimeBetweenMsgs)} ms")
+            if self._CanWorker.AuthStatus:
+                self._widgetAuth.setText(f'Auth: OK')
+            else:
+                self._widgetAuth.setText(f'Auth: Fail')
 
-        self._PrintScreenData(Data)
+            self._PrintLogData()
 
-        # if not onlyGUI:
-        #     self._PrintLogData(Data)
-
-    def _PrintScreenData(self, printData):
-        self._widgetCanMsgPeriod.setText("Msg Period: %d ms" % int(self._CanWorker.TimeBetweenMsgs))
-
-        if self._CanWorker.AuthStatus:
-            self._widgetAuth.setText(f'Auth: OK')
-        else:
-            self._widgetAuth.setText(f'Auth: Fail')
 
         self._widgetsAnt1[0].setText("  KEY 1\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[0][0][0], printData[0][0][1], printData[0][0][2]))
         self._widgetsAnt1[1].setText("  KEY 2\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[0][1][0], printData[0][1][1], printData[0][1][2]))
@@ -447,7 +436,7 @@ class MainWindow(QMainWindow):
         self._widgetsAnt6[3].setText("  KEY 4\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[5][3][0], printData[5][3][1], printData[5][3][2]))
         self._widgetsAnt6[4].setText("  KEY 5\nRSSI_X: %d\nRSSI_Y: %d\nRSSI_Z: %d\n" %(printData[5][4][0], printData[5][4][1], printData[5][4][2]))
     
-    def _PrintLogData(self, printData): 
+    def _PrintLogData(self): 
         time_hms = time.strftime("%H:%M:%S", time.localtime())
         time_dmy = time.strftime("%d/%m/%Y", time.localtime())
         
@@ -458,17 +447,18 @@ class MainWindow(QMainWindow):
         self._worksheet.write(self._row, self._row+2, 'Date: ', bold)
         self._worksheet.write(self._row, self._row+3, f'{time_dmy}')
         
-        if self.CanWorker.AuthStatus:
+        if self._CanWorker.AuthStatus:
             self._worksheet.write(self._row, self._row+5, 'Auth OK', bold)
         else:
             self._worksheet.write(self._row, self._row+5, 'Auth Fail', bold)
-
 
         self._worksheet.write(self._row+3, self._row, "KEY 1")
         self._worksheet.write(self._row+4, self._row, "KEY 2")
         self._worksheet.write(self._row+5, self._row, "KEY 3")
         self._worksheet.write(self._row+6, self._row, "KEY 4")
         self._worksheet.write(self._row+7, self._row, "KEY 5")
+
+        printData = self._CanWorker.Data
 
         for i in range(5):
             self._worksheet.write(self._row+1, i*4+self._row+2, f"ANTENNA {i+1}")
@@ -499,7 +489,7 @@ class MainWindow(QMainWindow):
 
         self._row += 9
 
-    def _PrintSigleLog(self, printData):
+    def _PrintSigleLog(self):
         time_hms = time.strftime("%H:%M:%S", time.localtime())
         time_dmy = time.strftime("%d/%m/%Y", time.localtime())
         
@@ -510,12 +500,12 @@ class MainWindow(QMainWindow):
         self._worksheet_single.write(self._row_single, self._row_single+2, 'Date: ', bold)
         self._worksheet_single.write(self._row_single, self._row_single+3, f'{time_dmy}')
 
-        if self.CanWorker.AuthStatus:
+        if self._CanWorker.AuthStatus:
             self._worksheet_single.write(self._row_single, self._row_single+5, 'Auth OK', bold)
         else:
             self._worksheet_single.write(self._row_single, self._row_single+5, 'Auth Fail', bold)
 
-        msg = self.widgetLogMsg.text()
+        msg = self._widgetLogMsg.text()
         self._worksheet_single.write(self._row_single, self._row_single+7, 'Message: ', bold)
         self._worksheet_single.write(self._row_single, self._row_single+8, f'{msg}')
 
@@ -524,6 +514,8 @@ class MainWindow(QMainWindow):
         self._worksheet_single.write(self._row_single+5, self._row_single, "KEY 3")
         self._worksheet_single.write(self._row_single+6, self._row_single, "KEY 4")
         self._worksheet_single.write(self._row_single+7, self._row_single, "KEY 5")
+
+        printData = self._CanWorker.Data
 
         for i in range(5):
             self._worksheet_single.write(self._row_single+1, i*4+self._row_single+2, f"ANTENNA {i+1}")
@@ -562,8 +554,6 @@ def app_start():
 
     app.exec()
 
-
-
 if __name__ == "__main__": 
 
     # time_hms = time.strftime("%H:%M:%S", time.localtime())
@@ -574,7 +564,6 @@ if __name__ == "__main__":
     # except: pass
 
     app_start() 
-
 
 # TIME STAMP
 
