@@ -4,6 +4,7 @@ import numpy as np
 import time
 import can
 import logging
+import os
 
 ###### CAN MSG IDs ######
 RKE_KEY_NUM_ID        = 0x0111
@@ -29,15 +30,6 @@ PKE_ANT6_KEY_3_4_5_ID = 0x011D
 PKE_AUTH_OK_ID        = 0x011E
 
 
-logs_path = "AppLogs"
-logger = logging.getLogger(__name__)
-f_handler = logging.FileHandler(f'{logs_path}/{__name__}.log')
-f_format = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-f_handler.setFormatter(f_format)
-logger.addHandler(f_handler)
-logger.setLevel(logging.INFO)
-
-
 class CanSendRecv(QThread):
     finished = pyqtSignal()
     canInited = pyqtSignal()
@@ -45,10 +37,10 @@ class CanSendRecv(QThread):
     canReceivedAll = pyqtSignal(bool)
     keyNumIdReceived = pyqtSignal(int)
 
-    def __init__(self, parent=None):
+    def __init__(self, ANT_AMOUNT, KEY_AMOUNT, parent=None):
         QThread.__init__(self, parent)
         self._busInitialized = False
-        self._data = np.zeros(((6, 5, 3)))
+        self._data = np.zeros(((ANT_AMOUNT, KEY_AMOUNT, 3)))
         self._lastAuth = 0
         self._isAllReceived = [False]*13
         self._timeBetweenMsgs = 0
@@ -57,6 +49,26 @@ class CanSendRecv(QThread):
         self._firstReceivedMsg = True
         self._AntMask = 0x3F
         self._PowerMode = 0
+        self._AntAmount = ANT_AMOUNT
+        self._KeyAmount = KEY_AMOUNT
+
+        self._init_logger()
+
+    def __del__(self):
+        self.BusDeInit()
+
+    def _init_logger(self):
+        logs_path = "app_logs"
+        try:
+            os.mkdir(f"{logs_path}/")
+        except: pass
+
+        self._logger = logging.getLogger(__name__)
+        f_handler = logging.FileHandler(f'{logs_path}/{__name__}.log')
+        f_format = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        f_handler.setFormatter(f_format)
+        self._logger.addHandler(f_handler)
+        self._logger.setLevel(logging.WARNING)
 
     def _CanSend(self):
         try:
@@ -71,10 +83,10 @@ class CanSendRecv(QThread):
                 try:
                     self._bus.send(msg_to_send)
                 except Exception as exc:
-                    logger.warning(f"CAN didn't send: {exc}")
+                    self._logger.warning(f"CAN didn't send: {exc}")
                     self.BusDeInit()
         except Exception as exc:
-            logger.warning(f"CanSend error: {exc}")
+            self._logger.warning(f"CanSend error: {exc}")
         
     def _CanReceive(self):
         try:
@@ -83,7 +95,7 @@ class CanSendRecv(QThread):
                     try:
                         msg = self._bus.recv(0.01)
                     except Exception as exc:
-                        logger.warning(f"Can did't receive: {exc}")
+                        self._logger.warning(f"Can did't receive: {exc}")
                         self._BusDeInit()
                         break
 
@@ -114,7 +126,7 @@ class CanSendRecv(QThread):
 
                     self.canReceivedAll.emit(True)
         except Exception as exc:
-            logger.warning(f"CanReceive error: {exc}")
+            self._logger.warning(f"CanReceive error: {exc}")
 
     @property
     def Data(self):
@@ -130,6 +142,10 @@ class CanSendRecv(QThread):
     
     def SetAntMask(self, mask):
         self._AntMask = mask
+        self._CanSend()
+
+    def SetPowerMode(self, mode):
+        self._PowerMode = mode
         self._CanSend()
 
     def _ParseData(self, msg):
@@ -307,12 +323,14 @@ class CanSendRecv(QThread):
         try:
             self._bus = can.Bus(interface='systec', channel='0', bitrate=500000)
             self._busInitialized = True
-            logger.info("CAN was inited!")
-            self.canInited.emit()
+            self._logger.info("CAN was inited!")
+            try:
+                self.canInited.emit()
+            except: pass
             self._CanSend()
             return True
         except Exception as exc:
-            logger.info(f"CAN was not inited: {exc}")
+            self._logger.info(f"CAN was not inited: {exc}")
             return False
 
     def BusInit(self):
@@ -326,25 +344,27 @@ class CanSendRecv(QThread):
                         QApplication.processEvents()
                         time.sleep(0.1)
             else:
-                logger.info("CAN is already inited!")
+                self._logger.info("CAN is already inited!")
         except Exception as exc:
-            logger.warning(f"BusInit error: {exc}")
+            self._logger.warning(f"BusInit error: {exc}")
 
     def BusDeInit(self):
         try:
             if self._busInitialized == True:
                 self._busInitialized = False
-                self.canDeInited.emit()
                 try:
                     self._bus.shutdown()
                     del self._bus
-                    logger.info("CAN was deinited!")
+                    try:
+                        self.canDeInited.emit()
+                    except: pass
+                    self._logger.info("CAN was deinited!")
                 except Exception as exc:
-                    logger.warning(f"CAN was not deinited: {exc}")
+                    self._logger.warning(f"CAN was not deinited: {exc}")
             else:
-                logger.info("CAN is already not inited!")
+                self._logger.info("CAN is already not inited!")
         except Exception as exc:
-            logger.warning(f"BusDeInit error: {exc}")
+            self._logger.warning(f"BusDeInit error: {exc}")
 
     def MainTask(self):
 
@@ -359,11 +379,11 @@ class CanSendRecv(QThread):
         QTimer.singleShot(100, self.MainTask)
 
     def Start(self):
-        logger.info("CAN Task Run")
+        self._logger.info("CAN Task Run")
         try:
             self.BusInit()
 
             self._Counter = 0
             self.MainTask()
         except Exception as exc:
-            logger.warning(f"Start error: {exc}")
+            self._logger.warning(f"Start error: {exc}")
