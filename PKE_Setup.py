@@ -2,9 +2,10 @@ from PyQt5.QtWidgets import (
     QMainWindow, QCheckBox, QVBoxLayout, 
     QApplication, QLabel, QHBoxLayout, 
     QWidget, QPushButton, QLineEdit, 
-    QGroupBox, QGridLayout, QStackedLayout,
-    QFrame
+    QGroupBox, QGridLayout,
+    QFrame, QTabWidget, QScrollArea
 )
+from PyQt5.QtGui import QPixmap, QPainter, QPen, QColor, QFont
 from PyQt5.QtCore import Qt, QSize, QThread
 import numpy as np
 import time
@@ -78,7 +79,7 @@ class MainWindow(QMainWindow):
 
     def _SetApp(self):
         self.setWindowTitle("PKE Setup")
-        # self.resize(QSize(1700, 1000))
+        self.resize(QSize(1400, 800))
         # self.setStyleSheet("background-color: white;")
 
         self._layoutBig = QHBoxLayout()
@@ -86,20 +87,24 @@ class MainWindow(QMainWindow):
         self._layoutAnts.setSpacing(0)
 
         self._layoutWidgets = QVBoxLayout()
-        self._layoutWidgets.setSpacing(30)
+        self._layoutWidgets.setSpacing(50)
         v_widget = QWidget()
-        v_widget.setLayout(self._layoutWidgets)
-        v_widget.setFixedWidth(350)            
+        v_widget.setLayout(self._layoutWidgets)    
+        scroll_widget = QScrollArea()
+        scroll_widget.setWidget(v_widget)
+        scroll_widget.setWidgetResizable(True)      
+        scroll_widget.setFixedWidth(400)   
 
         self._layoutBig.addLayout(self._layoutAnts)
-        self._layoutBig.addWidget(v_widget)
+        self._layoutBig.addWidget(scroll_widget)
 
-        self._SetAntsData()
+        self._SetDataTabs()
         self._SetCAN()
         self._SetStatuses()
         self._SetPowerMode()
         self._SetLogs()
-        self._SetCheckBox()
+        self._SetAntCheckBox()
+        self._SetKeyCheckBox()
 
         self._PrintData(False)
         
@@ -109,74 +114,136 @@ class MainWindow(QMainWindow):
 
         self.show()
 
+    def _SetDataTabs(self):
+        tabs = QTabWidget()
+        tabs.addTab(self._SetAntsData(), "RSSIs")
+        tabs.addTab(self._SetPictures(), "Points")
+        self._layoutAnts.addWidget(tabs)
+
     def _SetAntsData(self): 
         self._antFrames = []
-        gridAntsLayout = []
+        self._keyFrames = []
+        smallVLayout = []
+        bigHLayout = QHBoxLayout()
+        bigHLayout.setSpacing(0)
         for nAnt in range(self._AntAmount+1):
-            gridAntsLayout.append(QGridLayout())
+            smallVLayout.append(QVBoxLayout())
             self._antFrames.append(QFrame())
-            self._antFrames[nAnt].setLayout(gridAntsLayout[nAnt])
+            self._antFrames[nAnt].setLayout(smallVLayout[nAnt])
             # self._antFrames[nAnt].setStyleSheet("border: 1px solid black")
-            gridAntsLayout[nAnt].setSpacing(5)
+            smallVLayout[nAnt].setContentsMargins(0,0,0,0)
 
+            bigHLayout.addWidget(self._antFrames[nAnt])
             if nAnt == 0:
-                gridAntsLayout[nAnt].setColumnMinimumWidth(0, 80)
-
-            gridAntsLayout[nAnt].setRowMinimumHeight(0, 50)
-            for i in range(self._KeyAmount): gridAntsLayout[nAnt].setRowMinimumHeight(i+1, 150)
-
-            gridAntsLayout[nAnt].setRowStretch(0, 0)
-            for i in range(self._KeyAmount): gridAntsLayout[nAnt].setRowStretch(i+1, 1)
-
-            self._layoutAnts.addWidget(self._antFrames[nAnt])
-            if nAnt == 0:
-                self._layoutAnts.setStretch(nAnt, 0)
+                bigHLayout.setStretch(nAnt, 0)
             else:
-                self._layoutAnts.setStretch(nAnt, 1)
+                bigHLayout.setStretch(nAnt, 1)
 
 
         self._RSSI_Widgets = []
+        
+        w = QLabel(f"")
+        font = w.font()
+        font.setPointSize(15)
+        w.setFont(font)
+        smallVLayout[0].addWidget(w)
+        smallVLayout[0].setStretch(0, 0)
+        smallVLayout[0].setSpacing(0)
+        smallVLayout[0].setContentsMargins(0,0,0,0)
 
+        keyFrameLocal = []
         for nKey in range(self._KeyAmount):
+            keyFrameLocal.append(QFrame())
+
             w = QLabel(f"Key {nKey+1}")
             font = w.font()
-            font.setPointSize(15)
+            font.setPointSize(12)
             w.setFont(font)
             w.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-            gridAntsLayout[0].addWidget(w, nKey+1, 0)
+
+            l = QVBoxLayout()
+            l.addWidget(w)
+            l.setSpacing(0)
+            keyFrameLocal[nKey].setLayout(l)
+            smallVLayout[0].addWidget(keyFrameLocal[nKey])
+            smallVLayout[0].setStretch(nKey+1, 1)
+
+        self._keyFrames.append(keyFrameLocal)
 
         for nAnt in range(1, self._AntAmount+1):
             w = QLabel(f"ANT {nAnt}")
             font = w.font()
-            font.setPointSize(15)
+            font.setPointSize(12)
             w.setFont(font)
             w.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-            # w.setStyleSheet("border: 1px solid black")
-            gridAntsLayout[nAnt].addWidget(w, 0, nAnt)
+            smallVLayout[nAnt].addWidget(w)
+            smallVLayout[nAnt].setSpacing(0)
 
             templist = []
+            keyFrameLocal = []
             for nKey in range(self._KeyAmount):
+                keyFrameLocal.append(QFrame())
+
                 k = QLabel()
-                font = k.font()
-                font.setPointSize(14)
-                k.setFont(font)
+                k.setFont(QFont('Courier', 14))
                 k.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-                # k.setStyleSheet("border: 1px solid black")
                 
                 groupbox = QGroupBox()
                 font = groupbox.font()
                 font.setPointSize(10)
                 groupbox.setFont(font)
                 Box = QVBoxLayout()
-                Box.setSpacing(20)
+                Box.setSpacing(0)
                 groupbox.setLayout(Box)
                 Box.addWidget(k)
 
-                gridAntsLayout[nAnt].addWidget(groupbox, nKey+1, nAnt)
+                l = QVBoxLayout()
+                l.addWidget(groupbox)
+                l.setSpacing(0)
+                keyFrameLocal[nKey].setLayout(l)
+
+                smallVLayout[nAnt].addWidget(keyFrameLocal[nKey])
+                smallVLayout[nAnt].setStretch(nKey+1, 1)
                 
                 templist.append(k)
 
+            self._keyFrames.append(keyFrameLocal)
+
             self._RSSI_Widgets.append(templist)
+
+        w = QWidget()
+        w.setLayout(bigHLayout)
+
+        mw = QScrollArea()
+        mw.setWidget(w)
+        mw.setWidgetResizable(True) 
+
+        return mw
+    
+    def _SetPictures(self):
+        self._label = QLabel(self)
+        pixmap = QPixmap('pictures/GAZ_Top_View.jpg')
+        self._label.setPixmap(pixmap)
+        self._label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self._label.setMargin(200)
+
+        self._drawPoint(100, 100)
+
+        mw = QScrollArea()
+        mw.setWidget(self._label)
+        mw.setWidgetResizable(True) 
+
+        return mw
+    
+    def _drawPoint(self, x, y):
+        painter = QPainter(self._label.pixmap())
+        pen = QPen()
+        radius = 10
+        pen.setWidth(radius)
+        pen.setColor(QColor('green'))
+        painter.setPen(pen)
+        painter.drawEllipse(x, y, radius, radius)
+        painter.end()
 
     def _SetCAN(self):
         CANgroupbox = QGroupBox("CAN")
@@ -184,7 +251,7 @@ class MainWindow(QMainWindow):
         font.setPointSize(10)
         CANgroupbox.setFont(font)
         CANbox = QVBoxLayout()
-        CANbox.setSpacing(20)
+        CANbox.setSpacing(10)
         CANgroupbox.setLayout(CANbox)
 
         # Set USB port state Label
@@ -228,7 +295,7 @@ class MainWindow(QMainWindow):
         font.setPointSize(10)
         StatusGroupbox.setFont(font)
         StatusesBox = QVBoxLayout()
-        StatusesBox.setSpacing(20)
+        StatusesBox.setSpacing(15)
         StatusGroupbox.setLayout(StatusesBox)
     
         # Set last key with pressed button num
@@ -255,7 +322,7 @@ class MainWindow(QMainWindow):
         font.setPointSize(10)
         PowerModeGroupbox.setFont(font)
         StatusesBox = QVBoxLayout()
-        StatusesBox.setSpacing(20)
+        StatusesBox.setSpacing(15)
         PowerModeGroupbox.setLayout(StatusesBox)
 
         # Show Power Mode
@@ -282,7 +349,7 @@ class MainWindow(QMainWindow):
         font.setPointSize(10)
         groupbox.setFont(font)
         Logbox = QVBoxLayout()
-        Logbox.setSpacing(20)
+        Logbox.setSpacing(10)
         groupbox.setLayout(Logbox)
     
         # Get log msg
@@ -303,43 +370,76 @@ class MainWindow(QMainWindow):
 
         self._layoutWidgets.addWidget(groupbox)
 
-    def _SetCheckBox(self):
+    def _SetAntCheckBox(self):
         groupbox = QGroupBox("Ants for polling")
         font = groupbox.font()
         font.setPointSize(10)
         groupbox.setFont(font)
         Choosebox = QVBoxLayout()
         Choosebox.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        Choosebox.setSpacing(20)
+        Choosebox.setSpacing(15)
         groupbox.setLayout(Choosebox)
     
 
-        self._widgetCheckBox = []
+        self._widgetAntCheckBox = []
 
-        for nCnt in range(0, int(self._AntAmount/2+1)):
-            if(nCnt*2 < self._AntAmount):
-                self._widgetCheckBox.append(QCheckBox())
-                h = QHBoxLayout()
-                font = self._widgetCheckBox[nCnt*2].font()
-                font.setPointSize(11)
-                self._widgetCheckBox[nCnt*2].setFont(font)
-                self._widgetCheckBox[nCnt*2].setChecked(True)
-                self._widgetCheckBox[nCnt*2].stateChanged.connect(self._updateAntMask)
-                self._widgetCheckBox[nCnt*2].setText(f"Ant {nCnt*2+1}")
-                h.addWidget(self._widgetCheckBox[nCnt*2])
+        inRow = 3
+        for nAnt in range(0, int(self._AntAmount/inRow+1)):
+            h = QHBoxLayout()
+            added = False
+            for nCnt in range(inRow):
+                idx = nAnt*inRow + nCnt
+                if(idx < self._AntAmount):
+                    self._widgetAntCheckBox.append(QCheckBox())
+                    font = self._widgetAntCheckBox[idx].font()
+                    font.setPointSize(11)
+                    self._widgetAntCheckBox[idx].setFont(font)
+                    self._widgetAntCheckBox[idx].setChecked(True)
+                    self._widgetAntCheckBox[idx].stateChanged.connect(self._updateAntMask)
+                    self._widgetAntCheckBox[idx].setText(f"Ant {idx+1}")
+                    h.addWidget(self._widgetAntCheckBox[idx])
+                    h.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                    added = True
 
-            if(nCnt*2+1 < self._AntAmount):
-                self._widgetCheckBox.append(QCheckBox())
-                font = self._widgetCheckBox[nCnt*2+1].font()
-                font.setPointSize(11)
-                self._widgetCheckBox[nCnt*2+1].setFont(font)
-                self._widgetCheckBox[nCnt*2+1].setChecked(True)
-                self._widgetCheckBox[nCnt*2+1].stateChanged.connect(self._updateAntMask)
-                self._widgetCheckBox[nCnt*2+1].setText(f"Ant {nCnt*2+2}")
-                h.addWidget(self._widgetCheckBox[nCnt*2+1])
-
-            if(nCnt*2 < self._AntAmount):
+            if added:
                 Choosebox.addLayout(h)
+                added = False
+
+        self._layoutWidgets.addWidget(groupbox)
+
+    def _SetKeyCheckBox(self):
+        groupbox = QGroupBox("Keys for polling")
+        font = groupbox.font()
+        font.setPointSize(10)
+        groupbox.setFont(font)
+        Choosebox = QVBoxLayout()
+        Choosebox.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        Choosebox.setSpacing(15)
+        groupbox.setLayout(Choosebox)
+    
+        self._widgetKeyCheckBox = []
+
+        inRow = 3
+        for nKey in range(0, int(self._KeyAmount/inRow+1)):
+            h = QHBoxLayout()
+            added = False
+            for nCnt in range(inRow):
+                idx = nKey*inRow + nCnt
+                if(idx < self._KeyAmount):
+                    self._widgetKeyCheckBox.append(QCheckBox())
+                    font = self._widgetKeyCheckBox[idx].font()
+                    font.setPointSize(11)
+                    self._widgetKeyCheckBox[idx].setFont(font)
+                    self._widgetKeyCheckBox[idx].setChecked(True)
+                    self._widgetKeyCheckBox[idx].stateChanged.connect(self._updateKeyMask)
+                    self._widgetKeyCheckBox[idx].setText(f"Key {idx+1}")
+                    h.addWidget(self._widgetKeyCheckBox[idx])
+                    h.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                    added = True
+                
+            if added:
+                Choosebox.addLayout(h)
+                added = False
 
         self._layoutWidgets.addWidget(groupbox)
 
@@ -375,16 +475,22 @@ class MainWindow(QMainWindow):
         
     def _updateAntMask(self):
         AntMask = 0
-        for nCnt in range(0, len(self._widgetCheckBox)):
-            if self._widgetCheckBox[nCnt].isChecked():
+        for nCnt in range(0, len(self._widgetAntCheckBox)):
+            if self._widgetAntCheckBox[nCnt].isChecked():
                 AntMask |= 1 << nCnt
                 self._antFrames[nCnt+1].show()
             else:
                 self._antFrames[nCnt+1].hide()
 
-        self._layoutAnts.activate
-
         self._CanWorker.SetAntMask(AntMask)
+
+    def _updateKeyMask(self):
+        for nAnt in range(0, len(self._widgetAntCheckBox)+1):
+            for nKey in range(0, len(self._widgetKeyCheckBox)):
+                if self._widgetKeyCheckBox[nKey].isChecked():
+                    self._keyFrames[nAnt][nKey].show()
+                else:
+                    self._keyFrames[nAnt][nKey].hide()
 
     def _LastKeyIdUpdate(self, lastPressedKey):
         self._widgetLastKeyNum.setText(f"Last Key Pressed Num: {lastPressedKey}\t\t")
@@ -418,9 +524,9 @@ class MainWindow(QMainWindow):
 
         for nAnt in range(self._AntAmount):
             for nKey in range(self._KeyAmount):
-                self._RSSI_Widgets[nAnt][nKey].setText(f"RSSI_X: {' '*(3-len(str(int(Data[nAnt][nKey][0]))))}{int(Data[nAnt][nKey][0])}\n" +
-                                                       f"RSSI_Y: {' '*(3-len(str(int(Data[nAnt][nKey][1]))))}{int(Data[nAnt][nKey][1])}\n" +
-                                                       f"RSSI_Z: {' '*(3-len(str(int(Data[nAnt][nKey][2]))))}{int(Data[nAnt][nKey][2])}")
+                self._RSSI_Widgets[nAnt][nKey].setText(f"X: {' '*(3-len(str(int(Data[nAnt][nKey][0]))))}{int(Data[nAnt][nKey][0])}\n" +
+                                                       f"Y: {' '*(3-len(str(int(Data[nAnt][nKey][1]))))}{int(Data[nAnt][nKey][1])}\n" +
+                                                       f"Z: {' '*(3-len(str(int(Data[nAnt][nKey][2]))))}{int(Data[nAnt][nKey][2])}")
    
     def _PrintLogData(self): 
         time_hms = time.strftime("%H:%M:%S", time.localtime())
@@ -441,9 +547,9 @@ class MainWindow(QMainWindow):
         for nKey in range(self._KeyAmount):
             self._worksheet.write(self._row+3+nKey, self._column, f"KEY {nKey+1}")
     
-        printData = self._CanWorker.Data
+        Data = self._CanWorker.Data
 
-        for i in range(6):
+        for i in range(self._AntAmount):
             self._worksheet.write(self._row+1, i*4+self._column+2, f"ANTENNA {i+1}")
 
             self._worksheet.write(self._row+2, i*4+self._column+1, "RSSI X")
@@ -451,9 +557,9 @@ class MainWindow(QMainWindow):
             self._worksheet.write(self._row+2, i*4+self._column+3, "RSSI Z")
 
             for nKey in range(self._KeyAmount):
-                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+1, printData[i][nKey][0])
-                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+2, printData[i][nKey][1])                 
-                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+3, printData[i][nKey][2])
+                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+1, Data[i][nKey][0])
+                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+2, Data[i][nKey][1])                 
+                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+3, Data[i][nKey][2])
 
         self._row += 9
 
