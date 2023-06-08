@@ -129,8 +129,8 @@ class MainWindow(QMainWindow):
         self._tabs = QTabWidget()
         self._tabs.addTab(self._SetAntsData(), "RSSIs")
 
-        int_data = InteractiveData()
-        self._tabs.addTab(int_data._SetPictures(), "Points")
+        self._interactiveData = InteractiveData()
+        self._tabs.addTab(self._interactiveData.SetUp(), "Points")
         self._layoutAnts.addWidget(self._tabs)
 
     def _SetAntsData(self): 
@@ -508,6 +508,7 @@ class MainWindow(QMainWindow):
             else:
                 self._widgetAuth.setText(f'Auth: Fail')
 
+            self._interactiveData.RememberData(Data)
             self._PrintLogData()
 
         for nAnt in range(self._AntAmount):
