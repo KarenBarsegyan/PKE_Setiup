@@ -2,18 +2,22 @@ from PyQt5.QtWidgets import (
     QMainWindow, QCheckBox, QVBoxLayout, 
     QApplication, QLabel, QHBoxLayout, 
     QWidget, QPushButton, QLineEdit, 
-    QGroupBox, QGridLayout,
+    QGroupBox, QSpacerItem,
     QFrame, QTabWidget, QScrollArea
 )
-from PyQt5.QtGui import QPixmap, QPainter, QPen, QColor, QFont
-from PyQt5.QtCore import Qt, QSize, QThread
+from PyQt5.QtGui import (
+    QPixmap, QPainter, QPen, QColor, 
+    QFont, QPolygon
+)
+from PyQt5.QtCore import Qt, QSize, QThread, QRect
 import numpy as np
 import time
 import xlsxwriter
 import logging
 from CAN import CanSendRecv
+from interactive_data import InteractiveData
 import os
-    
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -22,6 +26,7 @@ class MainWindow(QMainWindow):
         self._PowerMode = 0
         self._AntAmount = 6
         self._KeyAmount = 5
+        self.points = QPolygon()
 
         self._InitLogger()
         self._Initworksheet()
@@ -90,13 +95,19 @@ class MainWindow(QMainWindow):
         self._layoutWidgets.setSpacing(50)
         v_widget = QWidget()
         v_widget.setLayout(self._layoutWidgets)    
-        scroll_widget = QScrollArea()
-        scroll_widget.setWidget(v_widget)
-        scroll_widget.setWidgetResizable(True)      
-        scroll_widget.setFixedWidth(400)   
+        scrollWidget = QScrollArea()
+        scrollWidget.setWidget(v_widget)
+        scrollWidget.setWidgetResizable(True) 
+        scrollWidget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)     
+        scrollWidget.setFixedWidth(400)   
 
+        layoutWidgetsSpacer = QVBoxLayout()
+        layoutWidgetsSpacer.addItem(QSpacerItem(0, 25))
+        layoutWidgetsSpacer.addWidget(scrollWidget)
+        layoutWidgetsSpacer.addItem(QSpacerItem(0, 4))
+        
         self._layoutBig.addLayout(self._layoutAnts)
-        self._layoutBig.addWidget(scroll_widget)
+        self._layoutBig.addLayout(layoutWidgetsSpacer)
 
         self._SetDataTabs()
         self._SetCAN()
@@ -115,10 +126,12 @@ class MainWindow(QMainWindow):
         self.show()
 
     def _SetDataTabs(self):
-        tabs = QTabWidget()
-        tabs.addTab(self._SetAntsData(), "RSSIs")
-        tabs.addTab(self._SetPictures(), "Points")
-        self._layoutAnts.addWidget(tabs)
+        self._tabs = QTabWidget()
+        self._tabs.addTab(self._SetAntsData(), "RSSIs")
+
+        int_data = InteractiveData()
+        self._tabs.addTab(int_data._SetPictures(), "Points")
+        self._layoutAnts.addWidget(self._tabs)
 
     def _SetAntsData(self): 
         self._antFrames = []
@@ -214,36 +227,11 @@ class MainWindow(QMainWindow):
         w = QWidget()
         w.setLayout(bigHLayout)
 
-        mw = QScrollArea()
-        mw.setWidget(w)
-        mw.setWidgetResizable(True) 
+        scrollAntsData = QScrollArea()
+        scrollAntsData.setWidget(w)
+        scrollAntsData.setWidgetResizable(True) 
 
-        return mw
-    
-    def _SetPictures(self):
-        self._label = QLabel(self)
-        pixmap = QPixmap('pictures/GAZ_Top_View.jpg')
-        self._label.setPixmap(pixmap)
-        self._label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        self._label.setMargin(200)
-
-        self._drawPoint(100, 100)
-
-        mw = QScrollArea()
-        mw.setWidget(self._label)
-        mw.setWidgetResizable(True) 
-
-        return mw
-    
-    def _drawPoint(self, x, y):
-        painter = QPainter(self._label.pixmap())
-        pen = QPen()
-        radius = 10
-        pen.setWidth(radius)
-        pen.setColor(QColor('green'))
-        painter.setPen(pen)
-        painter.drawEllipse(x, y, radius, radius)
-        painter.end()
+        return scrollAntsData
 
     def _SetCAN(self):
         CANgroupbox = QGroupBox("CAN")
