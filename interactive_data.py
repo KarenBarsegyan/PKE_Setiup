@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import (
     QPixmap, QPainter, QPen, QColor
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, QThread, QPoint
 import logging
 import os
 
@@ -15,6 +15,7 @@ class InteractiveData(QThread):
         QThread.__init__(self, parent)
 
         self._mesh_step = 25
+        self._points = []
 
         self._init_logger()
 
@@ -35,25 +36,61 @@ class InteractiveData(QThread):
         self._logger.setLevel(logging.WARNING)
 
     def _SetPictures(self):
-        canvas_width = 700
-        canvas_height = 1000
-        picture_height = 800
-
         localLayout = QVBoxLayout()
         localLayout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._label = QLabel()
+        self._label.mousePressEvent = self._getPos
+        # self._label.paintEvent = self._paintEvent
         localLayout.addWidget(self._label)
+
+        self._paintMainPic()
+
+        v_widget = QWidget()
+        v_widget.setLayout(localLayout)  
+        # v_widget.setStyleSheet("border: 1px solid black")
+
+        scrollPicture = QScrollArea()
+        scrollPicture.setWidget(v_widget)
+        scrollPicture.setWidgetResizable(True) 
+
+        return scrollPicture
+
+    def _getPos(self, event):
+        pos = QPoint()
+        pos.setX(round(event.pos().x() / self._mesh_step) * self._mesh_step)
+        pos.setY(round(event.pos().y() / self._mesh_step) * self._mesh_step)
+        # print(f"X: {pos.x()}, Y: {pos.y()}")
+
+        if event.button() == Qt.LeftButton:
+            exists = False
+            for point in self._points:
+                if point == pos:
+                    exists = True
+                    break
+            if not exists:   
+                self._points.append(pos)
+                print(f"A {self._points}")
+                self._paintEvent()
+                
+        elif event.button() == Qt.RightButton:
+            for point in self._points:
+                if point == pos:
+                    self._points.remove(point)
+                    self._paintEvent()
+                    break
+
+    def _paintMainPic(self):
+        canvas_width = 700
+        canvas_height = 1000
+        picture_height = 800
 
         canvas = QPixmap(canvas_width, canvas_height)
         canvas.fill(Qt.white)
         self._label.setPixmap(canvas)
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._label.setMargin(0)
-        self._label.mousePressEvent = self.getPos
-        # self._label.setFixedHeight(canvas_height)
-        # self._label.setFixedWidth(canvas_width)
-        self._label.setStyleSheet("border: 1px solid black")
+        # self._label.setStyleSheet("border: 1px solid black")
 
         painter = QPainter(self._label.pixmap())
 
@@ -84,23 +121,11 @@ class InteractiveData(QThread):
 
         painter.end()
 
-        v_widget = QWidget()
-        v_widget.setLayout(localLayout)  
-        # v_widget.setStyleSheet("border: 1px solid black")
+    def _paintEvent(self, event = None):
+        self._label.clear()
 
-        scrollPicture = QScrollArea()
-        scrollPicture.setWidget(v_widget)
-        scrollPicture.setWidgetResizable(True) 
+        self._paintMainPic()
 
-        return scrollPicture
-
-    def getPos(self, event):
-        if(event.button() == Qt.LeftButton):
-            self._drawPoint(event.pos())
-        elif(event.button() == Qt.RightButton):
-            self._deletePoint(event.pos())
-
-    def _drawPoint(self, pos):
         painter = QPainter(self._label.pixmap())
         pen = QPen()
         radius = 4
@@ -108,25 +133,8 @@ class InteractiveData(QThread):
         pen.setColor(QColor('green'))
         painter.setPen(pen)
 
-        pos.setX(round(pos.x() / self._mesh_step) * self._mesh_step)
-        pos.setY(round(pos.y() / self._mesh_step) * self._mesh_step)
+        for point in self._points:
+            painter.drawEllipse(point, radius, radius)
 
-        painter.drawEllipse(pos, radius, radius)
+        self._label.update()
         
-        painter.end()
-        self._label.update()
-
-    def _deletePoint(self, pos):
-        painter = QPainter(self._label.pixmap())
-        pen = QPen()
-        radius = 4
-        pen.setWidth(radius*2)
-        pen.setColor(QColor('transperent'))
-        painter.setPen(pen)
-
-        pos.setX(round(pos.x() / self._mesh_step) * self._mesh_step)
-        pos.setY(round(pos.y() / self._mesh_step) * self._mesh_step)
-
-        painter.drawEllipse(pos, radius, radius)
-        painter.end()
-        self._label.update()
