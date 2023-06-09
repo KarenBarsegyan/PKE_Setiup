@@ -89,16 +89,34 @@ class InteractiveData(QThread):
             self._logger.info("No points data yet")
 
     def _saveData(self):
-        print("Seved")
-        data = {
-            'pointsGreen': {json.dumps(tuple([100, 100])): np.zeros(((6, 5, 3)))},
-            'pointsYellow': {json.dumps(tuple([100, 100])): np.zeros(((6, 5, 3)))},
-            'pointsRed': {json.dumps(tuple([150, 150])): np.zeros(((6, 5, 3)))},
-            'pointsAnt': {json.dumps(tuple([200, 200])): np.zeros(((6, 5, 3)))},
-        }
-        for point in self._greenPoints():
-            
+        # data = {
+        #     'pointsGreen': {json.dumps(tuple([100, 100])): np.zeros(((6, 5, 3)))},
+        #     # 'pointsYellow': {json.dumps(tuple([100, 100])): np.zeros(((6, 5, 3)))},
+        #     # 'pointsRed': {json.dumps(tuple([150, 150])): np.zeros(((6, 5, 3)))},
+        #     # 'pointsAnt': {json.dumps(tuple([200, 200])): np.zeros(((6, 5, 3)))},
+        # }
+        data = dict()
+        
+        d = dict()
+        for point in self._greenPoints:  
+            d[json.dumps(point)] = self._greenPoints[point]
+        data['pointsGreen'] = d
 
+        d = dict()
+        for point in self._yellowPoints:  
+            d[json.dumps(point)] = self._yellowPoints[point]
+        data['pointsYellow'] = d
+
+        d = dict()
+        for point in self._redPoints:  
+            d[json.dumps(point)] = self._redPoints[point]
+        data['pointsRed'] = d
+
+        d = dict()
+        for point in self._antPoints:  
+            d[json.dumps(point)] = self._antPoints[point]
+        data['pointsAnt'] = d
+        
         with open(f'{self._store_data_path}/points', 'w') as f:
             json.dump(data, f, cls=NumpyArrayEncoder)
 
