@@ -650,3 +650,4 @@ if __name__ == "__main__":
 # TIME STAMP
 
 # pyinstaller --onefile --hidden-import=can.interfaces.systec -w PKE_Setup.py
+# pyinstaller PKE_Setup.py --hidden-import=can.interfaces.systec --noconsole --add-data "pictures;pictures" --name PKE_Setup --noconfirm
