@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QThread, pyqtSignal, QTimer
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMainWindow
 import numpy as np
 import time
 import can
@@ -357,7 +357,8 @@ class CanSendRecv(QThread):
                     del self._bus
                     try:
                         self.canDeInited.emit()
-                    except: pass
+                    except: 
+                        self._logger.info("Error in CAN De Init emit") 
                     self._logger.info("CAN was deinited!")
                 except Exception as exc:
                     self._logger.warning(f"CAN was not deinited: {exc}")

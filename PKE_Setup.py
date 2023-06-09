@@ -6,10 +6,9 @@ from PyQt5.QtWidgets import (
     QFrame, QTabWidget, QScrollArea
 )
 from PyQt5.QtGui import (
-    QPixmap, QPainter, QPen, QColor, 
     QFont, QPolygon
 )
-from PyQt5.QtCore import Qt, QSize, QThread, QRect
+from PyQt5.QtCore import Qt, QSize, QThread
 import numpy as np
 import time
 import xlsxwriter
@@ -17,6 +16,7 @@ import logging
 from CAN import CanSendRecv
 from interactive_data import InteractiveData
 import os
+import yaml
 
 
 class MainWindow(QMainWindow):
@@ -27,13 +27,16 @@ class MainWindow(QMainWindow):
         self._AntAmount = 6
         self._KeyAmount = 5
         self.points = QPolygon()
+        self._store_data_path = "store_data"
+        self._logs_path = "app_logs"
 
         self._InitLogger()
         self._Initworksheet()
         self._SetApp()
         self._CanInit()
+        self._restoreData()
 
-    def __del__(self):
+    def closeEvent(self, *args, **kwargs):
         try:
             self._workbook.close()
             self._logger.info("WorkBook Closed")
@@ -49,14 +52,30 @@ class MainWindow(QMainWindow):
         except:
             self._logger.info("Error terminating CAN thread")
 
+        to_yaml = {
+            'ants': [],
+            'keys': []
+        }
+        for nCnt in range(0, len(self._widgetAntCheckBox)):
+            if self._widgetAntCheckBox[nCnt].isChecked():
+                to_yaml['ants'].append(nCnt)
+
+        for nCnt in range(0, len(self._widgetKeyCheckBox)):
+            if self._widgetKeyCheckBox[nCnt].isChecked():
+                to_yaml['keys'].append(nCnt)
+           
+        with open(f'{self._store_data_path}/keys_ants', 'w') as f:
+            yaml.dump(to_yaml, f)
+
+        super(QMainWindow, self).closeEvent(*args, **kwargs)
+
     def _InitLogger(self):
-        logs_path = "app_logs"
         try:
-            os.mkdir(f"{logs_path}/")
+            os.mkdir(f"{self._logs_path}/")
         except: pass
 
         self._logger = logging.getLogger(__name__)
-        f_handler = logging.FileHandler(f'{logs_path}/{__name__}.log')
+        f_handler = logging.FileHandler(f'{self._logs_path}/{__name__}.log')
         f_format = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         f_handler.setFormatter(f_format)
         self._logger.addHandler(f_handler)
@@ -130,7 +149,9 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._SetAntsData(), "RSSIs")
 
         self._interactiveData = InteractiveData()
-        self._tabs.addTab(self._interactiveData.SetUp(), "Points")
+        self._tabs.addTab(self._interactiveData.SetUpCalibrationDesk(), "Calibration")
+        self._tabs.addTab(self._interactiveData.SetUpMeasureDesk(), "Measurement")
+        
         self._layoutAnts.addWidget(self._tabs)
 
     def _SetAntsData(self): 
@@ -445,6 +466,30 @@ class MainWindow(QMainWindow):
         self._CanWorker.canReceivedAll.connect(self._PrintData)
         
         self._CanThread.start()
+
+    def _restoreData(self):
+        try:
+            os.mkdir(f"{self._store_data_path}/")
+        except: pass
+
+        try:
+            keysAntsData = yaml.load(open(f'{self._store_data_path}/keys_ants'), yaml.SafeLoader)
+            for nCnt in range(0, len(self._widgetAntCheckBox)):
+                if nCnt not in keysAntsData['ants']:
+                    self._widgetAntCheckBox[nCnt].setChecked(False)
+
+            for nCnt in range(0, len(self._widgetKeyCheckBox)):
+                if nCnt not in keysAntsData['keys']:
+                    self._widgetKeyCheckBox[nCnt].setChecked(False)
+
+        except:
+            self._logger.info("Create new \"keys_ants\" file")
+            to_yaml = {
+                'ants': [0, 1, 2, 3, 4, 5],
+                'keys': [0, 1, 2, 3, 4]
+            }
+            with open(f'{self._store_data_path}/keys_ants', 'w') as f:
+                yaml.dump(to_yaml, f)
 
     def _BusInitHandler(self):
         self._widgetUsbConnect.setFlat(True)

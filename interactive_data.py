@@ -7,26 +7,31 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import (
     QPixmap, QPainter, QPen, QColor
 )
-from PyQt5.QtCore import Qt, QThread, QPoint
+from PyQt5.QtCore import Qt, QThread, QPoint, QSize, QRect
 import logging
 import os
 import numpy as np
+from functools import partial
 
 class InteractiveData(QThread):
-    class Color(int):
+    class PointType(int):
         Green = 1
         Yellow = 2 
         Red = 3 
+        Ant = 4
 
     def __init__(self, parent=None):
         QThread.__init__(self, parent)
 
         self._mesh_step = 25
-        self._greenPoints = []
-        self._yellowPoints = []
-        self._redPoints = []
-        self._lastPos = QPoint()
+        self._greenPoints = dict()
+        self._yellowPoints = dict()
+        self._redPoints = dict()
+        self._antPoints = dict()
+        self._lastPos = tuple()
         self._data = np.zeros(((6, 5, 3)))
+        self._AntAmount = 6
+        self._KeyAmount = 5
 
         self._init_logger()
 
@@ -48,51 +53,55 @@ class InteractiveData(QThread):
 
     def RememberData(self, Data):
         self._data = Data
-        self._updateRSSIData()
-        # self._label.update()
+        self._updateToolbarData()
     
-    def SetUp(self):
+    def SetUpCalibrationDesk(self):
         localLayout = QVBoxLayout()
         localLayout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._writeRSSIAction = QAction(self)
         self._writeRSSIAction.setText("Write RSSI")
-        self._writeRSSIAction.triggered.connect(self._setGreenPoint)
+        self._writeRSSIAction.triggered.connect(partial(self._setPoint, self.PointType.Green))
 
         self._deletePointAction = QAction(self)
         self._deletePointAction.setText("Delete Point")
         self._deletePointAction.triggered.connect(self._deletePoint)
 
+        self._setAntAction = QAction(self)
+        self._setAntAction.setText("Set Ant Point")
+        self._setAntMenu = QMenu("Open Recent")
+        self._setAntAction.setMenu(self._setAntMenu)
+        self._setAntMenu.aboutToShow.connect(self._populateSetAnts)
+        # self._setAntAction.triggered.connect(self._setAntPoint)
+
         separator = QAction(self)
         separator.setSeparator(True)
 
         self._RSSI_type_action = QAction(self)
-        self._RSSI_type_action.setText(f"Actual Data")
 
         self._RSSI_x_action = QAction(self)
         self._RSSI_x_action.setText(f"X = 122")
-
         self._RSSI_y_action = QAction(self)
         self._RSSI_y_action.setText(f"Y = 122")
-
         self._RSSI_z_action = QAction(self)
         self._RSSI_z_action.setText(f"Z = 122")
 
-        self._label = QLabel()
-        self._label.mousePressEvent = self._getPos
+        self._calibrationLabel = QLabel()
+        self._calibrationLabel.mousePressEvent = self._mouseClickCallback
 
-        self._label.setContextMenuPolicy(Qt.ActionsContextMenu)
-        self._label.addAction(self._writeRSSIAction)
-        self._label.addAction(self._deletePointAction)
-        self._label.addAction(separator)
-        self._label.addAction(self._RSSI_type_action)
-        self._label.addAction(self._RSSI_x_action)
-        self._label.addAction(self._RSSI_y_action)
-        self._label.addAction(self._RSSI_z_action)
+        self._calibrationLabel.setContextMenuPolicy(Qt.ActionsContextMenu)
+        self._calibrationLabel.addAction(self._writeRSSIAction)
+        self._calibrationLabel.addAction(self._deletePointAction)
+        self._calibrationLabel.addAction(self._setAntAction)
+        self._calibrationLabel.addAction(separator)
+        self._calibrationLabel.addAction(self._RSSI_type_action)
+        self._calibrationLabel.addAction(self._RSSI_x_action)
+        self._calibrationLabel.addAction(self._RSSI_y_action)
+        self._calibrationLabel.addAction(self._RSSI_z_action)
 
-        localLayout.addWidget(self._label)
+        localLayout.addWidget(self._calibrationLabel)
 
-        self._paintMainPic()
+        self._paintMainPic(self._calibrationLabel)
 
         v_widget = QWidget()
         v_widget.setLayout(localLayout)  
@@ -104,136 +113,172 @@ class InteractiveData(QThread):
 
         return scrollPicture
 
-    def _getPos(self, event):
-        pos = QPoint()
-        pos.setX(round(event.pos().x() / self._mesh_step) * self._mesh_step)
-        pos.setY(round(event.pos().y() / self._mesh_step) * self._mesh_step)
-        # print(f"X: {pos.x()}, Y: {pos.y()}")
-        self._lastPos = pos
+    def SetUpMeasureDesk(self):
+        localLayout = QVBoxLayout()
+        localLayout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._measureLabel = QLabel()
+
+        localLayout.addWidget(self._measureLabel)
+
+        self._paintMainPic(self._measureLabel)
+
+        v_widget = QWidget()
+        v_widget.setLayout(localLayout)  
+        # v_widget.setStyleSheet("border: 1px solid black")
+
+        scrollPicture = QScrollArea()
+        scrollPicture.setWidget(v_widget)
+        scrollPicture.setWidgetResizable(True) 
+
+        return scrollPicture       
+
+    def _populateSetAnts(self):
+        self._setAntMenu.clear()
+
+        actions = []
+        availableAnts = []
+        for i in range(1, self._AntAmount + 1):
+            if i not in self._antPoints.values():
+                availableAnts.append(i)
+
+        for ant in availableAnts:
+            action = QAction(f"Ant {ant}", self)
+            action.triggered.connect(partial(self._setPoint, self.PointType.Ant, ant))
+            actions.append(action)
+        # Step 3. Add the actions to the menu
+        self._setAntMenu.addActions(actions)
+
+    def _mouseClickCallback(self, event):
+        self._lastPos = tuple( [(round(event.pos().x() / self._mesh_step) * self._mesh_step),
+                                (round(event.pos().y() / self._mesh_step) * self._mesh_step)])
 
         if event.button() == Qt.LeftButton:
-            if self._whichPointPlaced() == self.Color.Red:
-                self._deletePoint()
-            elif self._whichPointPlaced() == self.Color.Green:
-                self._setYellowPoint()
-            elif self._whichPointPlaced() == self.Color.Yellow:
-                self._setRedPoint()
-            else:
-                self._setGreenPoint()
-
-        # print(f"Green: {self._greenPoints}")
-        # print(f"Yellow: {self._yellowPoints}")
-        # print(f"Red: {self._redPoints}\n")
-        elif event.button() == Qt.RightButton:
-            self._updateRSSIData()
             if self._whichPointPlaced() == None:
-                self._writeRSSIAction.setVisible(True)
-                self._deletePointAction.setVisible(False)
-            else:
-                self._writeRSSIAction.setVisible(False)
-                self._deletePointAction.setVisible(True)
+                self._setPoint(self.PointType.Green)
+
+            # print(f"Green: {len(self._greenPoints)}")
+            # print(f"Yellow: {len(self._yellowPoints)}")
+            # print(f"Red: {len(self._redPoints)}\n")
+        elif event.button() == Qt.RightButton:
+            self._updateToolbarData()
   
-    def _updateRSSIData(self):
+    def _updateToolbarData(self):
         if self._whichPointPlaced() == None:
+            self._RSSI_x_action.setVisible(True)
+            self._RSSI_y_action.setVisible(True)
+            self._RSSI_z_action.setVisible(True)
+
+            self._writeRSSIAction.setVisible(True)
+            self._deletePointAction.setVisible(False)
+            if len(self._antPoints) < self._AntAmount:
+                self._setAntAction.setVisible(True)
+            else:
+                self._setAntAction.setVisible(False)
+
             Data = self._data
+
             self._RSSI_type_action.setText(f"Actual Data")
-            self._RSSI_x_action.setText(f"X: {' '*(3-len(str(int(Data[1][0][0]))))}{int(Data[1][0][0])}")
-            self._RSSI_y_action.setText(f"Y: {' '*(3-len(str(int(Data[1][0][1]))))}{int(Data[1][0][1])}")
-            self._RSSI_z_action.setText(f"Z: {' '*(3-len(str(int(Data[1][0][2]))))}{int(Data[1][0][2])}")
 
-    def _deletePoint(self) -> Color:
-        for point in self._greenPoints:
-            if point == self._lastPos:
-                self._greenPoints.remove(point)
-                self._paintEvent()
-                return self.Color.Green
+        elif self._whichPointPlaced() == self.PointType.Green:
+            self._RSSI_x_action.setVisible(True)
+            self._RSSI_y_action.setVisible(True)
+            self._RSSI_z_action.setVisible(True)
 
-        for point in self._yellowPoints:
-            if point == self._lastPos:
-                self._yellowPoints.remove(point)
-                self._paintEvent()
-                return self.Color.Yellow
+            self._writeRSSIAction.setVisible(False)
+            self._deletePointAction.setVisible(True)
+            self._setAntAction.setVisible(False)
 
-        for point in self._redPoints:
-            if point == self._lastPos:
-                self._redPoints.remove(point)
-                self._paintEvent()
-                return self.Color.Red
+            Data = self._greenPoints[self._lastPos]
 
-    def _setGreenPoint(self):
-        exists = False
-        for point in self._greenPoints:
-            if point == self._lastPos:
-                exists = True
-                break
+            self._RSSI_type_action.setText(f"Remebered Data")
 
-        if not exists:   
-            self._deletePoint()
+        elif self._whichPointPlaced() == self.PointType.Ant:
+            antNum = self._antPoints[self._lastPos]
+            self._RSSI_type_action.setText(f"Ant №{antNum}")
+            self._RSSI_x_action.setVisible(False)
+            self._RSSI_y_action.setVisible(False)
+            self._RSSI_z_action.setVisible(False)
 
-            self._greenPoints.append(self._lastPos)
+            self._writeRSSIAction.setVisible(False)
+            self._deletePointAction.setVisible(True)
+            self._setAntAction.setVisible(False)
 
-            Data = self._data
-            self._RSSI_type_action.setText(f"Remembered Data")
-            self._RSSI_x_action.setText(f"X: {' '*(3-len(str(int(Data[1][0][0]))))}{int(Data[1][0][0])}")
-            self._RSSI_y_action.setText(f"Y: {' '*(3-len(str(int(Data[1][0][1]))))}{int(Data[1][0][1])}")
-            self._RSSI_z_action.setText(f"Z: {' '*(3-len(str(int(Data[1][0][2]))))}{int(Data[1][0][2])}")
+            return
+        else:
+            return
 
-            self._paintEvent()
-
-    def _setYellowPoint(self):
-        exists = False
-        for point in self._yellowPoints:
-            if point == self._lastPos:
-                exists = True
-                break
-
-        if not exists:   
-            self._deletePoint()
+        self._RSSI_x_action.setText(f"X: {' '*(3-len(str(int(Data[0][0][0]))))}{int(Data[0][0][0])}")
+        self._RSSI_y_action.setText(f"Y: {' '*(3-len(str(int(Data[0][0][1]))))}{int(Data[0][0][1])}")
+        self._RSSI_z_action.setText(f"Z: {' '*(3-len(str(int(Data[0][0][2]))))}{int(Data[0][0][2])}")
             
-            self._yellowPoints.append(self._lastPos)
-            self._paintEvent()
+    def _deletePoint(self) -> PointType:
+        if self._lastPos in self._greenPoints.keys():
+            del self._greenPoints[self._lastPos]
+            self._paintCalibrationEvent()
+            return self.PointType.Green
 
-    def _setRedPoint(self):
-        exists = False
-        for point in self._redPoints:
-            if point == self._lastPos:
-                exists = True
-                break
+        if self._lastPos in self._yellowPoints.keys():
+            del self._yellowPoints[self._lastPos]
+            self._paintCalibrationEvent()
+            return self.PointType.Yellow
 
-        if not exists:   
-            self._deletePoint()
-            
-            self._redPoints.append(self._lastPos)
-            self._paintEvent()
+        if self._lastPos in self._redPoints.keys():
+            del self._redPoints[self._lastPos]
+            self._paintCalibrationEvent()
+            return self.PointType.Red
+        
+        if self._lastPos in self._antPoints.keys():
+            del self._antPoints[self._lastPos]
+            self._paintCalibrationEvent()
+            self._paintMeasureEvent()
+            return self.PointType.Ant
 
-    def _whichPointPlaced(self) -> Color:
-        for point in self._greenPoints:
-            if point == self._lastPos:
-                return self.Color.Green
+    def _setPoint(self, type: PointType, antNum = None):
+        self._deletePoint()
+        if type == self.PointType.Green:
+            self._greenPoints[self._lastPos] = self._data.copy()
+
+        elif type == self.PointType.Yellow:  
+            self._yellowPoints[self._lastPos] = 0
+
+        elif type == self.PointType.Red:  
+            self._redPoints[self._lastPos] = 0
+
+        elif type == self.PointType.Ant:  
+            self._antPoints[self._lastPos] = antNum
+
+        self._paintCalibrationEvent()
+        self._paintMeasureEvent()
+
+    def _whichPointPlaced(self) -> PointType:
+        if self._lastPos in self._greenPoints.keys():
+            return self.PointType.Green
             
-        for point in self._yellowPoints:
-            if point == self._lastPos:
-                return self.Color.Yellow
+        if self._lastPos in self._yellowPoints.keys():
+            return self.PointType.Yellow
             
-        for point in self._redPoints:
-            if point == self._lastPos:
-                return self.Color.Red
+        if self._lastPos in self._redPoints.keys():
+            return self.PointType.Red
+        
+        if self._lastPos in self._antPoints.keys():
+            return self.PointType.Ant
             
         return None
 
-    def _paintMainPic(self):
+    def _paintMainPic(self, label):
         canvas_width = 700
         canvas_height = 1000
         picture_height = 800
 
         canvas = QPixmap(canvas_width, canvas_height)
         canvas.fill(Qt.white)
-        self._label.setPixmap(canvas)
-        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._label.setMargin(0)
-        # self._label.setStyleSheet("border: 1px solid black")
+        label.setPixmap(canvas)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setMargin(0)
+        # self._calibrationLabel.setStyleSheet("border: 1px solid black")
 
-        painter = QPainter(self._label.pixmap())
+        painter = QPainter(label.pixmap())
 
         pixmap = QPixmap('pictures/GAZ_Top_View.png')
         pixmap = pixmap.scaledToHeight(picture_height)
@@ -262,51 +307,71 @@ class InteractiveData(QThread):
 
         painter.end()
 
-    def _paintEvent(self, event = None):
-        self._label.clear()
+    def _paintCalibrationEvent(self, event = None):
+        self._calibrationLabel.clear()
 
-        self._paintMainPic()
+        self._paintMainPic(self._calibrationLabel)
 
-        painter = QPainter(self._label.pixmap())
+        painter = QPainter(self._calibrationLabel.pixmap())
         pen = QPen()
-        radius = 4
-        pen.setWidth(radius*2)
+        radius = 10
+        pen.setWidth(1)
         pen.setColor(QColor('green'))
         painter.setPen(pen)
+        painter.setBrush(QColor('green'))
         for point in self._greenPoints:
-            painter.drawEllipse(point, radius, radius)
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         pen = QPen()
-        radius = 4
-        pen.setWidth(radius*2)
+        radius = 10
+        pen.setWidth(1)
         pen.setColor(QColor('yellow'))
         painter.setPen(pen)
+        painter.setBrush(QColor('yellow'))
         for point in self._yellowPoints:
-            painter.drawEllipse(point, radius, radius)
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         pen = QPen()
-        radius = 4
-        pen.setWidth(radius*2)
+        size = 20
+        pen.setWidth(1)
+        pen.setColor(QColor('orange'))
+        painter.setPen(pen)
+        painter.setBrush(QColor('orange'))
+        for point in self._antPoints:
+            rect = QRect(QPoint(point[0]-size//2, 
+                                point[1]-size//2), 
+                         QSize(size, size))
+            painter.drawRect(rect)
+
+        self._calibrationLabel.update()
+
+    def _paintMeasureEvent(self, event = None):
+        self._measureLabel.clear()
+
+        self._paintMainPic(self._measureLabel)
+
+        painter = QPainter(self._measureLabel.pixmap())
+
+        pen = QPen()
+        radius = 10
+        pen.setWidth(1)
         pen.setColor(QColor('red'))
         painter.setPen(pen)
+        painter.setBrush(QColor('red'))
         for point in self._redPoints:
-            painter.drawEllipse(point, radius, radius)
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        self._label.update()
+        pen = QPen()
+        size = 20
+        pen.setWidth(1)
+        pen.setColor(QColor('orange'))
+        painter.setPen(pen)
+        painter.setBrush(QColor('orange'))
+        for point in self._antPoints:
+            rect = QRect(QPoint(point[0]-size//2, 
+                                point[1]-size//2), 
+                         QSize(size, size))
+            painter.drawRect(rect)
+
+        self._measureLabel.update()
         
-    def contextMenuEvent(self, event):
-        menu = QMenu(self._label.pixmap())
-
-        new_action = QAction("New", self)
-        open_action = QAction("Open", self)
-        exit_action = QAction("Exit", self)
-
-        menu.addAction(new_action)
-        menu.addAction(open_action)
-        menu.addSeparator()
-        menu.addAction(exit_action)
-
-        action = menu.exec_(self.mapToGlobal(event.pos()))
-
-        if action == exit_action:
-            QApplication.instance().quit()
