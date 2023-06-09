@@ -1,7 +1,7 @@
 
 from PyQt5.QtWidgets import (
-    QVBoxLayout, QApplication, QLabel,
-    QHBoxLayout, QWidget, QScrollArea, QMenu,
+    QVBoxLayout, QLabel,
+    QWidget, QScrollArea, QMenu,
     QAction
 )
 from PyQt5.QtGui import (
@@ -12,6 +12,14 @@ import logging
 import os
 import numpy as np
 from functools import partial
+import json
+from json import JSONEncoder
+
+class NumpyArrayEncoder(JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return JSONEncoder.default(self, obj)
 
 class InteractiveData(QThread):
     class PointType(int):
@@ -33,7 +41,10 @@ class InteractiveData(QThread):
         self._AntAmount = 6
         self._KeyAmount = 5
 
+        self._store_data_path = 'store_data'
+
         self._init_logger()
+        self._restoreData()
 
     def __del__(self):
         pass
@@ -50,6 +61,46 @@ class InteractiveData(QThread):
         f_handler.setFormatter(f_format)
         self._logger.addHandler(f_handler)
         self._logger.setLevel(logging.WARNING)
+
+    def _restoreData(self):
+        try:
+            os.mkdir(f"{self._store_data_path}/")
+        except: pass
+
+        try:
+            with open(f'{self._store_data_path}/points') as f:
+                pointsData = json.load(f)
+
+            for point in pointsData['pointsGreen']: 
+                numpyArray = np.asarray(pointsData['pointsGreen'][point])
+                self._greenPoints[tuple(json.loads(point))] = numpyArray
+
+            for point in pointsData['pointsYellow']: 
+                self._yellowPoints[tuple(json.loads(point))] = 0
+
+            for point in pointsData['pointsRed']: 
+                self._redPoints[tuple(json.loads(point))] = 0
+
+            for point in pointsData['pointsAnt']: 
+                self._antPoints[tuple(json.loads(point))] = 0
+
+        except:
+            print("No points data yet")
+            self._logger.info("No points data yet")
+
+    def _saveData(self):
+        print("Seved")
+        data = {
+            'pointsGreen': {json.dumps(tuple([100, 100])): np.zeros(((6, 5, 3)))},
+            'pointsYellow': {json.dumps(tuple([100, 100])): np.zeros(((6, 5, 3)))},
+            'pointsRed': {json.dumps(tuple([150, 150])): np.zeros(((6, 5, 3)))},
+            'pointsAnt': {json.dumps(tuple([200, 200])): np.zeros(((6, 5, 3)))},
+        }
+        for point in self._greenPoints():
+            
+
+        with open(f'{self._store_data_path}/points', 'w') as f:
+            json.dump(data, f, cls=NumpyArrayEncoder)
 
     def RememberData(self, Data):
         self._data = Data
@@ -102,6 +153,7 @@ class InteractiveData(QThread):
         localLayout.addWidget(self._calibrationLabel)
 
         self._paintMainPic(self._calibrationLabel)
+        self._paintCalibrationEvent()
 
         v_widget = QWidget()
         v_widget.setLayout(localLayout)  
@@ -122,6 +174,7 @@ class InteractiveData(QThread):
         localLayout.addWidget(self._measureLabel)
 
         self._paintMainPic(self._measureLabel)
+        self._paintMeasureEvent()
 
         v_widget = QWidget()
         v_widget.setLayout(localLayout)  
@@ -250,6 +303,7 @@ class InteractiveData(QThread):
 
         self._paintCalibrationEvent()
         self._paintMeasureEvent()
+        self._saveData()
 
     def _whichPointPlaced(self) -> PointType:
         if self._lastPos in self._greenPoints.keys():
