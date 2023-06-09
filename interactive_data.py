@@ -96,8 +96,6 @@ class InteractiveData(QThread):
         #     # 'pointsAnt': {json.dumps(tuple([200, 200])): np.zeros(((6, 5, 3)))},
         # }
         data = dict()
-        
-        print(self._antPoints)
 
         d = dict()
         for point in self._greenPoints:  
@@ -286,32 +284,30 @@ class InteractiveData(QThread):
         self._RSSI_z_action.setText(f"Z: {' '*(3-len(str(int(Data[0][0][2]))))}{int(Data[0][0][2])}")
             
     def _deletePoint(self) -> PointType:
+        type = None
         if self._lastPos in self._greenPoints.keys():
             del self._greenPoints[self._lastPos]
-            self._paintCalibrationEvent()
-            self._saveData()
-            return self.PointType.Green
+            type = self.PointType.Green
 
         if self._lastPos in self._yellowPoints.keys():
             del self._yellowPoints[self._lastPos]
-            self._paintCalibrationEvent()
-            self._saveData()
-            return self.PointType.Yellow
+            type = self.PointType.Yellow
 
         if self._lastPos in self._redPoints.keys():
             del self._redPoints[self._lastPos]
-            self._paintCalibrationEvent()
-            self._saveData()
-            return self.PointType.Red
+
+            type = self.PointType.Red
         
         if self._lastPos in self._antPoints.keys():
             del self._antPoints[self._lastPos]
-            self._paintCalibrationEvent()
-            self._paintMeasureEvent()
-            self._saveData()
-            return self.PointType.Ant
-        
+            type = self.PointType.Ant
 
+        self._paintCalibrationEvent()
+        self._paintMeasureEvent()
+        self._saveData()
+
+        return type
+        
     def _setPoint(self, type: PointType, antNum = None):
         self._deletePoint()
         if type == self.PointType.Green:
