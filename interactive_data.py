@@ -97,6 +97,8 @@ class InteractiveData(QThread):
         # }
         data = dict()
         
+        print(self._antPoints)
+
         d = dict()
         for point in self._greenPoints:  
             d[json.dumps(point)] = self._greenPoints[point]
@@ -287,23 +289,28 @@ class InteractiveData(QThread):
         if self._lastPos in self._greenPoints.keys():
             del self._greenPoints[self._lastPos]
             self._paintCalibrationEvent()
+            self._saveData()
             return self.PointType.Green
 
         if self._lastPos in self._yellowPoints.keys():
             del self._yellowPoints[self._lastPos]
             self._paintCalibrationEvent()
+            self._saveData()
             return self.PointType.Yellow
 
         if self._lastPos in self._redPoints.keys():
             del self._redPoints[self._lastPos]
             self._paintCalibrationEvent()
+            self._saveData()
             return self.PointType.Red
         
         if self._lastPos in self._antPoints.keys():
             del self._antPoints[self._lastPos]
             self._paintCalibrationEvent()
             self._paintMeasureEvent()
+            self._saveData()
             return self.PointType.Ant
+        
 
     def _setPoint(self, type: PointType, antNum = None):
         self._deletePoint()
