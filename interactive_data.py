@@ -82,10 +82,10 @@ class InteractiveData(QThread):
                 self._redPoints[tuple(json.loads(point))] = 0
 
             for point in pointsData['pointsAnt']: 
-                self._antPoints[tuple(json.loads(point))] = 0
+                antNum = pointsData['pointsAnt'][point]
+                self._antPoints[tuple(json.loads(point))] = antNum
 
         except:
-            print("No points data yet")
             self._logger.info("No points data yet")
 
     def _saveData(self):
@@ -224,14 +224,14 @@ class InteractiveData(QThread):
         self._lastPos = tuple( [(round(event.pos().x() / self._mesh_step) * self._mesh_step),
                                 (round(event.pos().y() / self._mesh_step) * self._mesh_step)])
 
-        if event.button() == Qt.LeftButton:
-            if self._whichPointPlaced() == None:
-                self._setPoint(self.PointType.Green)
+        # if event.button() == Qt.LeftButton:
+            # if self._whichPointPlaced() == None:
+                # self._setPoint(self.PointType.Green)
 
             # print(f"Green: {len(self._greenPoints)}")
             # print(f"Yellow: {len(self._yellowPoints)}")
             # print(f"Red: {len(self._redPoints)}\n")
-        elif event.button() == Qt.RightButton:
+        if event.button() == Qt.RightButton:
             self._updateToolbarData()
   
     def _updateToolbarData(self):
