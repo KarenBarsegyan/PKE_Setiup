@@ -26,7 +26,8 @@ class InteractiveData(QThread):
         Green = 1
         Yellow = 2 
         Red = 3 
-        Ant = 4
+        Blue = 4
+        Ant = 5
 
     def __init__(self, askForPollingFunc, parent=None):
         QThread.__init__(self, parent)
@@ -35,6 +36,8 @@ class InteractiveData(QThread):
         self._greenPoints = dict()
         self._yellowPoints = dict()
         self._redPoints = dict()
+        self._bluePoints = dict()
+        self._keyCircles = dict()
         self._antPoints = dict()
         self._lastPos = tuple()
         self._lastYellowPos = tuple()
@@ -47,6 +50,7 @@ class InteractiveData(QThread):
         self._amountsOfAverage = 0
         self._picWidth = 0
         self._picHeight = 0
+        self._distCoeff = 0
 
         self._store_data_path = 'store_data'
 
@@ -135,6 +139,7 @@ class InteractiveData(QThread):
            self._yellowPointInProgress = False
 
         self._updateToolbarData()
+        self._calcDistance()
     
     def SetUpCalibrationDesk(self):
         localLayout = QVBoxLayout()
@@ -157,7 +162,7 @@ class InteractiveData(QThread):
         separator = QAction(self)
         separator.setSeparator(True)
 
-        self._RSSI_type_action = QAction(self)
+        self._ant_num_action = QAction(self)
 
         self._calibrationLabel = QLabel()
         self._calibrationLabel.mousePressEvent = self._mouseClickCallback
@@ -167,6 +172,7 @@ class InteractiveData(QThread):
         self._calibrationLabel.addAction(self._deletePointAction)
         self._calibrationLabel.addAction(self._setAntAction)
         self._calibrationLabel.addAction(separator)
+        self._calibrationLabel.addAction(self._ant_num_action)
 
         localLayout.addWidget(self._calibrationLabel)
 
@@ -205,16 +211,90 @@ class InteractiveData(QThread):
         return scrollPicture    
 
     def Calibrate(self):
+        # self._calibration_data = np.zeros((((self._AntAmount, self._KeyAmount, 1))), dtype=int)
+        coeff = 0
+        amountOfCalcs = 0
         for antPos in self._antPoints:
             nAnt = self._antPoints[antPos]   
             for gPos in self._greenPoints:
-                for nKey in range(2):
+                for nKey in range(1):
                     sumRSSI = 0
                     for i in range(3):
                         sumRSSI += (self._greenPoints[gPos][nAnt][nKey][i])**2
 
                     sumRSSI = int(round(sumRSSI ** 0.5))
-                    print(f"Ant: {nAnt}\nnKey: {nKey}\nRSSI: {sumRSSI}\n")
+                    dist = ((gPos[0] - antPos[0])**2 + (gPos[1] - antPos[1])**2)**0.5
+
+                    coeff += sumRSSI*dist*dist
+                    amountOfCalcs += 1
+
+                print(f"RSSI: {sumRSSI} - Dist: {dist} - Coeff: {sumRSSI*dist*dist}")
+                # print(f"Ant: {nAnt}\nnKey: {nKey}\nDist: {dist}\nRSSI: {sumRSSI}")
+        if(amountOfCalcs != 0):
+            self._distCoeff = coeff/amountOfCalcs
+
+            print(f"Mean val: {coeff/amountOfCalcs}")
+        print("--------------------------------\n")
+
+    def _calcDistance(self):
+        self._keyCircles.clear()
+        self._bluePoints.clear()
+
+        for antPos in self._antPoints:
+            nAnt = self._antPoints[antPos]   
+            sumRSSI = 0
+            for i in range(3):
+                sumRSSI += (self._data[nAnt][0][i])**2
+            sumRSSI = int(round(sumRSSI ** 0.5))
+
+            if sumRSSI > 0:
+                radius = int((self._distCoeff/sumRSSI)**0.5)
+                self._keyCircles[antPos] = radius
+        
+
+        for circ1 in self._keyCircles:
+            for circ2 in self._keyCircles:
+                r1 = self._keyCircles[circ1]
+                r2 = self._keyCircles[circ2]
+                self._findIntersectionPoint(circ1, r1, circ2, r2)
+
+        self._paintMeasureEvent()
+
+    def _findIntersectionPoint(self, circ1pos, r1, circ2pos, r2):
+        if circ1pos == circ2pos:
+            return
+
+        xdelta = circ1pos[0]
+        ydelta = circ1pos[1]
+
+        x2 = circ2pos[0] - xdelta
+        y2 = circ2pos[1] - ydelta
+
+        a = -2*x2
+        b = -2*y2
+        c = x2**2 + y2**2 + r1**2 - r2**2
+
+        r = r1
+        eps = 0 #self._mesh_step/10
+        x0 = -a*c/(a*a+b*b) 
+        y0 = -b*c/(a*a+b*b)
+
+        if (c*c > r*r*(a*a+b*b)+eps):
+            return None
+        elif (abs(c*c - r*r*(a*a+b*b)) < eps):
+            pos = tuple([int(x0+xdelta), int(y0+ydelta)])
+            self._setPoint(type = self.PointType.Blue, coords=pos) 
+        else:
+            d = r*r - c*c/(a*a+b*b)
+            mult = (d / (a*a+b*b))**0.5
+            ax = x0 + b * mult + xdelta
+            bx = x0 - b * mult + xdelta
+            ay = y0 - a * mult + ydelta
+            by = y0 + a * mult + ydelta
+            pos = tuple([int(ax), int(ay)])
+            self._setPoint(type = self.PointType.Blue, coords=pos) 
+            pos = tuple([int(bx), int(by)])
+            self._setPoint(type = self.PointType.Blue, coords=pos) 
 
     def _populateSetAnts(self):
         self._setAntMenu.clear()
@@ -237,7 +317,11 @@ class InteractiveData(QThread):
                                (round(event.pos().y() / self._mesh_step) * self._mesh_step)])
 
         if event.button() == Qt.LeftButton:
-            self._setPoint(type = self.PointType.Yellow)
+            if self._whichPointPlaced() == None:
+                if not self._yellowPointInProgress:
+                    self._setPoint(type = self.PointType.Yellow)
+            elif self._whichPointPlaced() == self.PointType.Green:
+                pass
         
         if event.button() == Qt.RightButton:
             self._updateToolbarData()
@@ -260,7 +344,7 @@ class InteractiveData(QThread):
 
             Data = self._data
 
-            self._RSSI_type_action.setText(f"Actual Data")
+            self._ant_num_action.setVisible(False)
 
         elif self._whichPointPlaced() == self.PointType.Green:
             self._writeRSSIAction.setVisible(False)
@@ -269,7 +353,7 @@ class InteractiveData(QThread):
 
             Data = self._greenPoints[self._lastPos]
 
-            self._RSSI_type_action.setText(f"Remembered Data")
+            self._ant_num_action.setVisible(False)
 
         elif self._whichPointPlaced() == self.PointType.Yellow:
             self._writeRSSIAction.setVisible(False)
@@ -282,11 +366,12 @@ class InteractiveData(QThread):
 
             Data = self._data
 
-            self._RSSI_type_action.setText(f"Actual Data")
+            self._ant_num_action.setVisible(False)
 
         elif self._whichPointPlaced() == self.PointType.Ant:
             antNum = self._antPoints[self._lastPos]
-            self._RSSI_type_action.setText(f"Ant №{antNum+1}")
+            self._ant_num_action.setVisible(True)
+            self._ant_num_action.setText(f"Ant №{antNum+1}")
 
             self._writeRSSIAction.setVisible(False)
             self._deletePointAction.setVisible(True)
@@ -317,8 +402,8 @@ class InteractiveData(QThread):
             del self._yellowPoints[pos]
             type = self.PointType.Yellow
 
-        if pos in self._redPoints.keys():
-            del self._redPoints[pos]
+        # if pos in self._redPoints.keys():
+        #     del self._redPoints[pos]
 
             type = self.PointType.Red
         
@@ -345,6 +430,7 @@ class InteractiveData(QThread):
 
             if type == self.PointType.Green:
                 self._greenPoints[pos] = self._data.copy()
+                self.Calibrate()
 
             elif type == self.PointType.Yellow: 
                 self._yellowPointInProgress = True
@@ -352,8 +438,11 @@ class InteractiveData(QThread):
                 self._askForPollingFunc(start = True)
                 self._yellowPoints[pos] = 0
 
-            elif type == self.PointType.Red:  
+            elif type == self.PointType.Red: 
                 self._redPoints[pos] = 0
+
+            elif type == self.PointType.Blue: 
+                self._bluePoints[pos] = 0
 
             elif type == self.PointType.Ant:  
                 self._antPoints[pos] = antNum
@@ -476,6 +565,15 @@ class InteractiveData(QThread):
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         pen = QPen()
+        radius = 3
+        pen.setWidth(1)
+        pen.setColor(QColor('blue'))
+        painter.setPen(pen)
+        painter.setBrush(QColor('blue'))
+        for point in self._bluePoints:
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+
+        pen = QPen()
         size = 20
         pen.setWidth(1)
         pen.setColor(QColor('orange'))
@@ -486,6 +584,16 @@ class InteractiveData(QThread):
                                 point[1]-size//2), 
                          QSize(size, size))
             painter.drawRect(rect)
+
+        pen = QPen()
+        pen.setWidth(1)
+        pen.setColor(QColor('blue'))
+        painter.setPen(pen)
+        painter.setBrush(QColor('transparent'))
+        for point in self._keyCircles:
+            radius = self._keyCircles[point]
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+
 
         self._measureLabel.update()
         
