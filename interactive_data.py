@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import (
     QPixmap, QPainter, QPen, QColor
 )
-from PyQt5.QtCore import Qt, QThread, QPoint, QSize, QRect
+from PyQt5.QtCore import Qt, QThread, QPoint, QSize, QRect, pyqtSignal
 import logging
 import os
 import numpy as np
@@ -28,7 +28,7 @@ class InteractiveData(QThread):
         Red = 3 
         Ant = 4
 
-    def __init__(self, parent=None):
+    def __init__(self, askForPollingFunc, parent=None):
         QThread.__init__(self, parent)
 
         self._mesh_step = 25
@@ -37,9 +37,16 @@ class InteractiveData(QThread):
         self._redPoints = dict()
         self._antPoints = dict()
         self._lastPos = tuple()
+        self._lastYellowPos = tuple()
+        self._yellowPointInProgress = False
         self._data = np.zeros(((6, 5, 3)))
+        self._average_data = np.zeros(((6, 5, 3)))
         self._AntAmount = 6
         self._KeyAmount = 5
+        self._askForPollingFunc = askForPollingFunc
+        self._amountsOfAverage = 0
+        self._picWidth = 0
+        self._picHeight = 0
 
         self._store_data_path = 'store_data'
 
@@ -75,11 +82,11 @@ class InteractiveData(QThread):
                 numpyArray = np.asarray(pointsData['pointsGreen'][point])
                 self._greenPoints[tuple(json.loads(point))] = numpyArray
 
-            for point in pointsData['pointsYellow']: 
-                self._yellowPoints[tuple(json.loads(point))] = 0
+            # for point in pointsData['pointsYellow']: 
+            #     self._yellowPoints[tuple(json.loads(point))] = 0
 
-            for point in pointsData['pointsRed']: 
-                self._redPoints[tuple(json.loads(point))] = 0
+            # for point in pointsData['pointsRed']: 
+            #     self._redPoints[tuple(json.loads(point))] = 0
 
             for point in pointsData['pointsAnt']: 
                 antNum = pointsData['pointsAnt'][point]
@@ -102,15 +109,15 @@ class InteractiveData(QThread):
             d[json.dumps(point)] = self._greenPoints[point]
         data['pointsGreen'] = d
 
-        d = dict()
-        for point in self._yellowPoints:  
-            d[json.dumps(point)] = self._yellowPoints[point]
-        data['pointsYellow'] = d
+        # d = dict()
+        # for point in self._yellowPoints:  
+        #     d[json.dumps(point)] = self._yellowPoints[point]
+        # data['pointsYellow'] = d
 
-        d = dict()
-        for point in self._redPoints:  
-            d[json.dumps(point)] = self._redPoints[point]
-        data['pointsRed'] = d
+        # d = dict()
+        # for point in self._redPoints:  
+        #     d[json.dumps(point)] = self._redPoints[point]
+        # data['pointsRed'] = d
 
         d = dict()
         for point in self._antPoints:  
@@ -120,8 +127,18 @@ class InteractiveData(QThread):
         with open(f'{self._store_data_path}/points', 'w') as f:
             json.dump(data, f, cls=NumpyArrayEncoder)
 
-    def RememberData(self, Data):
+    def RememberData(self, Data, isDone):
         self._data = Data
+        self._average_data += self._data
+        self._amountsOfAverage += 1
+    
+        if isDone:
+           self._data = self._average_data / self._amountsOfAverage
+           self._setPoint(type = self.PointType.Green, coords = self._lastYellowPos)
+           self._average_data = np.zeros(((6, 5, 3)))
+           self._amountsOfAverage = 0
+           self._yellowPointInProgress = False
+
         self._updateToolbarData()
     
     def SetUpCalibrationDesk(self):
@@ -130,7 +147,7 @@ class InteractiveData(QThread):
 
         self._writeRSSIAction = QAction(self)
         self._writeRSSIAction.setText("Write RSSI")
-        self._writeRSSIAction.triggered.connect(partial(self._setPoint, self.PointType.Green))
+        self._writeRSSIAction.triggered.connect(partial(self._setPoint, type = self.PointType.Yellow))
 
         self._deletePointAction = QAction(self)
         self._deletePointAction.setText("Delete Point")
@@ -215,7 +232,7 @@ class InteractiveData(QThread):
 
         for ant in availableAnts:
             action = QAction(f"Ant {ant}", self)
-            action.triggered.connect(partial(self._setPoint, self.PointType.Ant, ant))
+            action.triggered.connect(partial(self._setPoint, type = self.PointType.Ant, antNum = ant))
             actions.append(action)
         # Step 3. Add the actions to the menu
         self._setAntMenu.addActions(actions)
@@ -241,6 +258,13 @@ class InteractiveData(QThread):
             self._RSSI_z_action.setVisible(True)
 
             self._writeRSSIAction.setVisible(True)
+            if (self._yellowPointInProgress):
+                self._writeRSSIAction.setText("Polling in progress...")
+                self._writeRSSIAction.setDisabled(True)
+            else:
+                self._writeRSSIAction.setText("Write RSSI")
+                self._writeRSSIAction.setEnabled(True)
+
             self._deletePointAction.setVisible(False)
             if len(self._antPoints) < self._AntAmount:
                 self._setAntAction.setVisible(True)
@@ -262,7 +286,24 @@ class InteractiveData(QThread):
 
             Data = self._greenPoints[self._lastPos]
 
-            self._RSSI_type_action.setText(f"Remebered Data")
+            self._RSSI_type_action.setText(f"Remembered Data")
+
+        elif self._whichPointPlaced() == self.PointType.Yellow:
+            self._RSSI_x_action.setVisible(True)
+            self._RSSI_y_action.setVisible(True)
+            self._RSSI_z_action.setVisible(True)
+
+            self._writeRSSIAction.setVisible(False)
+            self._deletePointAction.setVisible(True)
+            self._setAntAction.setVisible(False)
+
+            self._writeRSSIAction.setVisible(True)
+            self._writeRSSIAction.setText("Polling in progress...")
+            self._writeRSSIAction.setDisabled(True)
+
+            Data = self._data
+
+            self._RSSI_type_action.setText(f"Actual Data")
 
         elif self._whichPointPlaced() == self.PointType.Ant:
             antNum = self._antPoints[self._lastPos]
@@ -283,23 +324,28 @@ class InteractiveData(QThread):
         self._RSSI_y_action.setText(f"Y: {' '*(3-len(str(int(Data[0][0][1]))))}{int(Data[0][0][1])}")
         self._RSSI_z_action.setText(f"Z: {' '*(3-len(str(int(Data[0][0][2]))))}{int(Data[0][0][2])}")
             
-    def _deletePoint(self) -> PointType:
+    def _deletePoint(self, coords:tuple() = None) -> PointType:
         type = None
-        if self._lastPos in self._greenPoints.keys():
-            del self._greenPoints[self._lastPos]
+        if not coords:
+            pos = self._lastPos
+        else:
+            pos = coords
+
+        if pos in self._greenPoints.keys():
+            del self._greenPoints[pos]
             type = self.PointType.Green
 
-        if self._lastPos in self._yellowPoints.keys():
-            del self._yellowPoints[self._lastPos]
+        if pos in self._yellowPoints.keys():
+            del self._yellowPoints[pos]
             type = self.PointType.Yellow
 
-        if self._lastPos in self._redPoints.keys():
-            del self._redPoints[self._lastPos]
+        if pos in self._redPoints.keys():
+            del self._redPoints[pos]
 
             type = self.PointType.Red
         
-        if self._lastPos in self._antPoints.keys():
-            del self._antPoints[self._lastPos]
+        if pos in self._antPoints.keys():
+            del self._antPoints[pos]
             type = self.PointType.Ant
 
         self._paintCalibrationEvent()
@@ -308,23 +354,35 @@ class InteractiveData(QThread):
 
         return type
         
-    def _setPoint(self, type: PointType, antNum = None):
-        self._deletePoint()
-        if type == self.PointType.Green:
-            self._greenPoints[self._lastPos] = self._data.copy()
+    def _setPoint(self, type: PointType, antNum = None, coords:tuple() = None):
+        self._deletePoint(coords)
 
-        elif type == self.PointType.Yellow:  
-            self._yellowPoints[self._lastPos] = 0
+        if not coords:
+            pos = self._lastPos
+        else:
+            pos = coords
 
-        elif type == self.PointType.Red:  
-            self._redPoints[self._lastPos] = 0
+        if (pos[0] >= self._mesh_step and pos[0] <= self._picWidth - self._mesh_step and 
+            pos[1] >= self._mesh_step and pos[1] <= self._picHeight - self._mesh_step):
 
-        elif type == self.PointType.Ant:  
-            self._antPoints[self._lastPos] = antNum
+            if type == self.PointType.Green:
+                self._greenPoints[pos] = self._data.copy()
 
-        self._paintCalibrationEvent()
-        self._paintMeasureEvent()
-        self._saveData()
+            elif type == self.PointType.Yellow: 
+                self._yellowPointInProgress = True
+                self._lastYellowPos = pos
+                self._askForPollingFunc()
+                self._yellowPoints[pos] = 0
+
+            elif type == self.PointType.Red:  
+                self._redPoints[pos] = 0
+
+            elif type == self.PointType.Ant:  
+                self._antPoints[pos] = antNum
+
+            self._paintCalibrationEvent()
+            self._paintMeasureEvent()
+            self._saveData()
 
     def _whichPointPlaced(self) -> PointType:
         if self._lastPos in self._greenPoints.keys():
@@ -360,6 +418,9 @@ class InteractiveData(QThread):
         painter.drawPixmap(canvas_width//2 - pixmap.width()//2,
                            canvas_height//2 - pixmap.height()//2, 
                            pixmap)
+        
+        self._picWidth = canvas.width()
+        self._picHeight = canvas.height()
         
         x_offset = canvas.width() // 2
         y_offset = canvas.height() // 2

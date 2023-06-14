@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QFrame, QTabWidget, QScrollArea
 )
 from PyQt5.QtGui import (
-    QFont, QPolygon
+    QFont, QPolygon, QIntValidator
 )
 from PyQt5.QtCore import Qt, QSize, QThread
 import numpy as np
@@ -26,9 +26,10 @@ class MainWindow(QMainWindow):
         self._PowerMode = 0
         self._AntAmount = 6
         self._KeyAmount = 5
-        self.points = QPolygon()
         self._store_data_path = "store_data"
         self._logs_path = "app_logs"
+        self._PollingsDone = 0
+        self._PollingsNeeded = 1
 
         self._InitLogger()
         self._Initworksheet()
@@ -131,6 +132,7 @@ class MainWindow(QMainWindow):
         self._SetDataTabs()
         self._SetCAN()
         self._SetStatuses()
+        self._SetStartPolling()
         self._SetPowerMode()
         self._SetLogs()
         self._SetAntCheckBox()
@@ -148,7 +150,7 @@ class MainWindow(QMainWindow):
         self._tabs = QTabWidget()
         self._tabs.addTab(self._SetAntsData(), "RSSIs")
 
-        self._interactiveData = InteractiveData()
+        self._interactiveData = InteractiveData(askForPollingFunc = self._AskStartPolling)
         self._tabs.addTab(self._interactiveData.SetUpCalibrationDesk(), "Calibration")
         self._tabs.addTab(self._interactiveData.SetUpMeasureDesk(), "Measurement")
         
@@ -324,6 +326,48 @@ class MainWindow(QMainWindow):
         StatusesBox.addWidget(self._widgetAuth)
 
         self._layoutWidgets.addWidget(StatusGroupbox)
+
+    def _SetStartPolling(self):
+        StartPollingGroupbox = QGroupBox("Start Polling")
+        font = StartPollingGroupbox.font()
+        font.setPointSize(10)
+        StartPollingGroupbox.setFont(font)
+        StartPollingBox = QVBoxLayout()
+        StartPollingBox.setSpacing(15)
+        StartPollingGroupbox.setLayout(StartPollingBox)
+    
+        widgetPollingsAmount = QLabel("Pollings Amount: ")
+        font = widgetPollingsAmount.font()
+        font.setPointSize(12)
+        widgetPollingsAmount.setFont(font)
+        widgetPollingsAmount.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        StartPollingBox.addWidget(widgetPollingsAmount)
+
+        validator = QIntValidator(1, 250)
+        self._widgetPollingAmount = QLineEdit("3")
+        self._widgetPollingAmount.setValidator(validator)
+        font = self._widgetPollingAmount.font()
+        font.setPointSize(12)
+        self._widgetPollingAmount.setFont(font)
+        self._widgetPollingAmount.setMaximumHeight(200)
+        self._widgetPollingAmount.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        StartPollingBox.addWidget(self._widgetPollingAmount)
+
+        self._widgetPollingsDone = QLabel()
+        font = self._widgetPollingsDone.font()
+        font.setPointSize(12)
+        self._widgetPollingsDone.setFont(font)
+        self._widgetPollingsDone.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        StartPollingBox.addWidget(self._widgetPollingsDone)
+
+        self._widgetStartPolling = QPushButton("Start Polling")
+        font = self._widgetStartPolling.font()
+        font.setPointSize(12)
+        self._widgetStartPolling.setFont(font)
+        StartPollingBox.addWidget(self._widgetStartPolling)
+        self._widgetStartPolling.clicked.connect(self._StartPollingHandler)
+
+        self._layoutWidgets.addWidget(StartPollingGroupbox)
 
     def _SetPowerMode(self):
         PowerModeGroupbox = QGroupBox("Power Mode")
@@ -501,9 +545,11 @@ class MainWindow(QMainWindow):
 
     def _BusInitedCallback(self):
         self._widgetUsbState.setText("Systec Connected")
+        self._widgetUsbState.setStyleSheet("color: green;")
 
     def _BusDeInitedCallback(self):
         self._widgetUsbState.setText("Systec Disconnected")
+        self._widgetUsbState.setStyleSheet("color: black;")
         self._PrintData(False)
         
     def _updateAntMask(self):
@@ -538,22 +584,78 @@ class MainWindow(QMainWindow):
         
         self._CanWorker.SetPowerMode(self._PowerMode)
 
+    def _StartPollingHandler(self):
+        if(self._widgetStartPolling.text() == "Stop Polling"):
+            self._StopPolling()
+            return
+
+        self._widgetStartPolling.setText("Stop Polling")
+        self._PollingsDone = 0
+        self._widgetPollingsDone.setText("Pollings Done: 0")
+        self._widgetPollingsDone.setStyleSheet("color: black;")
+    
+        self._PollingsNeeded = int(self._widgetPollingAmount.text())
+        if(self._PollingsNeeded <= 0):
+            self._PollingsNeeded = 1
+            self._widgetPollingAmount.setText(str(self._PollingsNeeded))
+        elif(self._PollingsNeeded >= 250):
+            self._PollingsNeeded = 250
+            self._widgetPollingAmount.setText(str(self._PollingsNeeded))
+
+        self._CanWorker.StartPoll(self._PollingsNeeded)
+
+    def _StopPolling(self):
+        self._widgetStartPolling.setText("Start Polling")
+        self._PollingsDone = 0
+        self._widgetPollingsDone.setText("Pollings Done: 0")
+        self._widgetPollingsDone.setStyleSheet("color: black;")
+        self._PollingsNeeded = 0
+
+        self._CanWorker.StartPoll(255)
+
+    def _AskStartPolling(self):
+        if(self._widgetStartPolling.text() == "Stop Polling"):
+            self._StopPolling()
+
+        self._StartPollingHandler()
+
     def _PrintData(self, res: bool):
         if not res:
             self._widgetCanMsgPeriod.setText("Msg Period: 0 ms")
             self._widgetAuth.setText(f'Auth: None\t')
+            self._widgetAuth.setStyleSheet("color: black;")
             self._widgetLastKeyNum.setText(f"Last Key Pressed Num: None\t")
             Data = np.zeros(((self._AntAmount, self._KeyAmount, 3)))
+            self._widgetPollingsDone.setText("Pollings Done: 0")
+            self._PollingsDone = 0
 
         else:
             Data = self._CanWorker.Data
             self._widgetCanMsgPeriod.setText(f"Msg Period: {int(self._CanWorker.TimeBetweenMsgs)} ms")
             if self._CanWorker.AuthStatus:
                 self._widgetAuth.setText(f'Auth: OK')
+                self._widgetAuth.setStyleSheet("color: green;")
             else:
                 self._widgetAuth.setText(f'Auth: Fail')
+                self._widgetAuth.setStyleSheet("color: red;")
 
-            self._interactiveData.RememberData(Data)
+            isPollDone = False
+            if (self._PollingsNeeded != 0):
+                self._PollingsDone += 1
+                self._widgetPollingsDone.setText(f"Pollings Done: {self._PollingsDone}")
+        
+                if (self._PollingsDone == self._PollingsNeeded):
+                    self._widgetPollingsDone.setStyleSheet("color: green;")
+                    isPollDone = True
+                    self._widgetStartPolling.setText("Start Polling")
+                else:
+                    self._widgetPollingsDone.setStyleSheet("color: black;")
+            
+            else:
+                self._widgetPollingsDone.setText("Pollings Done: 0")
+                self._widgetPollingsDone.setStyleSheet("color: black;")
+
+            self._interactiveData.RememberData(Data, isPollDone)
             self._PrintLogData()
 
         for nAnt in range(self._AntAmount):

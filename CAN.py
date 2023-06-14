@@ -51,6 +51,7 @@ class CanSendRecv(QThread):
         self._PowerMode = 0
         self._AntAmount = ANT_AMOUNT
         self._KeyAmount = KEY_AMOUNT
+        self._amountOfPollings = 0
 
         self._init_logger()
 
@@ -73,13 +74,13 @@ class CanSendRecv(QThread):
     def _CanSend(self):
         try:
             if self._busInitialized:
-                self._AntMask
                 msg_to_send = can.Message(
                     arbitration_id=0x0211,
-                    data=[self._AntMask, self._PowerMode, 0, 0, 0, 0, 0, 0],
+                    data=[self._AntMask, self._PowerMode, self._amountOfPollings, 0, 0, 0, 0, 0],
                     is_extended_id = False
                 )
-                
+                self._amountOfPollings = 0
+
                 try:
                     self._bus.send(msg_to_send)
                 except Exception as exc:
@@ -146,6 +147,11 @@ class CanSendRecv(QThread):
 
     def SetPowerMode(self, mode):
         self._PowerMode = mode
+        self._CanSend()
+    
+    def StartPoll(self, amountOfPollings):
+        self._amountOfPollings = amountOfPollings
+        self._firstReceivedMsg = True
         self._CanSend()
 
     def _ParseData(self, msg):
