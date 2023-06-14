@@ -39,10 +39,10 @@ class InteractiveData(QThread):
         self._lastPos = tuple()
         self._lastYellowPos = tuple()
         self._yellowPointInProgress = False
-        self._data = np.zeros(((6, 5, 3)))
-        self._average_data = np.zeros(((6, 5, 3)))
         self._AntAmount = 6
         self._KeyAmount = 5
+        self._data = np.zeros((((self._AntAmount, self._KeyAmount, 3))), dtype=int)
+        self._average_data = self._data
         self._askForPollingFunc = askForPollingFunc
         self._amountsOfAverage = 0
         self._picWidth = 0
@@ -52,6 +52,7 @@ class InteractiveData(QThread):
 
         self._init_logger()
         self._restoreData()
+        self.Calibrate()
 
     def __del__(self):
         pass
@@ -96,12 +97,6 @@ class InteractiveData(QThread):
             self._logger.info("No points data yet")
 
     def _saveData(self):
-        # data = {
-        #     'pointsGreen': {json.dumps(tuple([100, 100])): np.zeros(((6, 5, 3)))},
-        #     # 'pointsYellow': {json.dumps(tuple([100, 100])): np.zeros(((6, 5, 3)))},
-        #     # 'pointsRed': {json.dumps(tuple([150, 150])): np.zeros(((6, 5, 3)))},
-        #     # 'pointsAnt': {json.dumps(tuple([200, 200])): np.zeros(((6, 5, 3)))},
-        # }
         data = dict()
 
         d = dict()
@@ -132,10 +127,10 @@ class InteractiveData(QThread):
         self._average_data += self._data
         self._amountsOfAverage += 1
     
-        if isDone:
-           self._data = self._average_data / self._amountsOfAverage
+        if isDone and self._yellowPointInProgress:
+           self._data = np.floor_divide(self._average_data, self._amountsOfAverage)
            self._setPoint(type = self.PointType.Green, coords = self._lastYellowPos)
-           self._average_data = np.zeros(((6, 5, 3)))
+           self._average_data = np.zeros((((self._AntAmount, self._KeyAmount, 3))), dtype=int)
            self._amountsOfAverage = 0
            self._yellowPointInProgress = False
 
@@ -155,22 +150,14 @@ class InteractiveData(QThread):
 
         self._setAntAction = QAction(self)
         self._setAntAction.setText("Set Ant Point")
-        self._setAntMenu = QMenu("Open Recent")
+        self._setAntMenu = QMenu()
         self._setAntAction.setMenu(self._setAntMenu)
         self._setAntMenu.aboutToShow.connect(self._populateSetAnts)
-        # self._setAntAction.triggered.connect(self._setAntPoint)
 
         separator = QAction(self)
         separator.setSeparator(True)
 
         self._RSSI_type_action = QAction(self)
-
-        self._RSSI_x_action = QAction(self)
-        self._RSSI_x_action.setText(f"X = 122")
-        self._RSSI_y_action = QAction(self)
-        self._RSSI_y_action.setText(f"Y = 122")
-        self._RSSI_z_action = QAction(self)
-        self._RSSI_z_action.setText(f"Z = 122")
 
         self._calibrationLabel = QLabel()
         self._calibrationLabel.mousePressEvent = self._mouseClickCallback
@@ -180,10 +167,6 @@ class InteractiveData(QThread):
         self._calibrationLabel.addAction(self._deletePointAction)
         self._calibrationLabel.addAction(self._setAntAction)
         self._calibrationLabel.addAction(separator)
-        self._calibrationLabel.addAction(self._RSSI_type_action)
-        self._calibrationLabel.addAction(self._RSSI_x_action)
-        self._calibrationLabel.addAction(self._RSSI_y_action)
-        self._calibrationLabel.addAction(self._RSSI_z_action)
 
         localLayout.addWidget(self._calibrationLabel)
 
@@ -219,44 +202,48 @@ class InteractiveData(QThread):
         scrollPicture.setWidget(v_widget)
         scrollPicture.setWidgetResizable(True) 
 
-        return scrollPicture       
+        return scrollPicture    
+
+    def Calibrate(self):
+        for antPos in self._antPoints:
+            nAnt = self._antPoints[antPos]   
+            for gPos in self._greenPoints:
+                for nKey in range(2):
+                    sumRSSI = 0
+                    for i in range(3):
+                        sumRSSI += (self._greenPoints[gPos][nAnt][nKey][i])**2
+
+                    sumRSSI = int(round(sumRSSI ** 0.5))
+                    print(f"Ant: {nAnt}\nnKey: {nKey}\nRSSI: {sumRSSI}\n")
 
     def _populateSetAnts(self):
         self._setAntMenu.clear()
 
         actions = []
         availableAnts = []
-        for i in range(1, self._AntAmount + 1):
+        for i in range(0, self._AntAmount):
             if i not in self._antPoints.values():
                 availableAnts.append(i)
 
         for ant in availableAnts:
-            action = QAction(f"Ant {ant}", self)
+            action = QAction(f"Ant {ant+1}", self)
             action.triggered.connect(partial(self._setPoint, type = self.PointType.Ant, antNum = ant))
             actions.append(action)
         # Step 3. Add the actions to the menu
         self._setAntMenu.addActions(actions)
 
     def _mouseClickCallback(self, event):
-        self._lastPos = tuple( [(round(event.pos().x() / self._mesh_step) * self._mesh_step),
-                                (round(event.pos().y() / self._mesh_step) * self._mesh_step)])
+        self._lastPos = tuple([(round(event.pos().x() / self._mesh_step) * self._mesh_step),
+                               (round(event.pos().y() / self._mesh_step) * self._mesh_step)])
 
-        # if event.button() == Qt.LeftButton:
-            # if self._whichPointPlaced() == None:
-                # self._setPoint(self.PointType.Green)
-
-            # print(f"Green: {len(self._greenPoints)}")
-            # print(f"Yellow: {len(self._yellowPoints)}")
-            # print(f"Red: {len(self._redPoints)}\n")
+        if event.button() == Qt.LeftButton:
+            self._setPoint(type = self.PointType.Yellow)
+        
         if event.button() == Qt.RightButton:
             self._updateToolbarData()
   
     def _updateToolbarData(self):
         if self._whichPointPlaced() == None:
-            self._RSSI_x_action.setVisible(True)
-            self._RSSI_y_action.setVisible(True)
-            self._RSSI_z_action.setVisible(True)
-
             self._writeRSSIAction.setVisible(True)
             if (self._yellowPointInProgress):
                 self._writeRSSIAction.setText("Polling in progress...")
@@ -276,10 +263,6 @@ class InteractiveData(QThread):
             self._RSSI_type_action.setText(f"Actual Data")
 
         elif self._whichPointPlaced() == self.PointType.Green:
-            self._RSSI_x_action.setVisible(True)
-            self._RSSI_y_action.setVisible(True)
-            self._RSSI_z_action.setVisible(True)
-
             self._writeRSSIAction.setVisible(False)
             self._deletePointAction.setVisible(True)
             self._setAntAction.setVisible(False)
@@ -289,10 +272,6 @@ class InteractiveData(QThread):
             self._RSSI_type_action.setText(f"Remembered Data")
 
         elif self._whichPointPlaced() == self.PointType.Yellow:
-            self._RSSI_x_action.setVisible(True)
-            self._RSSI_y_action.setVisible(True)
-            self._RSSI_z_action.setVisible(True)
-
             self._writeRSSIAction.setVisible(False)
             self._deletePointAction.setVisible(True)
             self._setAntAction.setVisible(False)
@@ -307,10 +286,7 @@ class InteractiveData(QThread):
 
         elif self._whichPointPlaced() == self.PointType.Ant:
             antNum = self._antPoints[self._lastPos]
-            self._RSSI_type_action.setText(f"Ant №{antNum}")
-            self._RSSI_x_action.setVisible(False)
-            self._RSSI_y_action.setVisible(False)
-            self._RSSI_z_action.setVisible(False)
+            self._RSSI_type_action.setText(f"Ant №{antNum+1}")
 
             self._writeRSSIAction.setVisible(False)
             self._deletePointAction.setVisible(True)
@@ -320,9 +296,9 @@ class InteractiveData(QThread):
         else:
             return
 
-        self._RSSI_x_action.setText(f"X: {' '*(3-len(str(int(Data[0][0][0]))))}{int(Data[0][0][0])}")
-        self._RSSI_y_action.setText(f"Y: {' '*(3-len(str(int(Data[0][0][1]))))}{int(Data[0][0][1])}")
-        self._RSSI_z_action.setText(f"Z: {' '*(3-len(str(int(Data[0][0][2]))))}{int(Data[0][0][2])}")
+        # self._RSSI_x_action.setText(f"X: {' '*(3-len(str(Data[0][0][0])))}{Data[0][0][0]}")
+        # self._RSSI_y_action.setText(f"Y: {' '*(3-len(str(Data[0][0][1])))}{Data[0][0][1]}")
+        # self._RSSI_z_action.setText(f"Z: {' '*(3-len(str(Data[0][0][2])))}{Data[0][0][2]}")
             
     def _deletePoint(self, coords:tuple() = None) -> PointType:
         type = None
@@ -336,6 +312,8 @@ class InteractiveData(QThread):
             type = self.PointType.Green
 
         if pos in self._yellowPoints.keys():
+            self._askForPollingFunc(start = False)
+            self._yellowPointInProgress = False
             del self._yellowPoints[pos]
             type = self.PointType.Yellow
 
@@ -371,7 +349,7 @@ class InteractiveData(QThread):
             elif type == self.PointType.Yellow: 
                 self._yellowPointInProgress = True
                 self._lastYellowPos = pos
-                self._askForPollingFunc()
+                self._askForPollingFunc(start = True)
                 self._yellowPoints[pos] = 0
 
             elif type == self.PointType.Red:  

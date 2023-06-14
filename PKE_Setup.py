@@ -150,7 +150,7 @@ class MainWindow(QMainWindow):
         self._tabs = QTabWidget()
         self._tabs.addTab(self._SetAntsData(), "RSSIs")
 
-        self._interactiveData = InteractiveData(askForPollingFunc = self._AskStartPolling)
+        self._interactiveData = InteractiveData(askForPollingFunc = self._AskStartStopPolling)
         self._tabs.addTab(self._interactiveData.SetUpCalibrationDesk(), "Calibration")
         self._tabs.addTab(self._interactiveData.SetUpMeasureDesk(), "Measurement")
         
@@ -588,11 +588,6 @@ class MainWindow(QMainWindow):
         if(self._widgetStartPolling.text() == "Stop Polling"):
             self._StopPolling()
             return
-
-        self._widgetStartPolling.setText("Stop Polling")
-        self._PollingsDone = 0
-        self._widgetPollingsDone.setText("Pollings Done: 0")
-        self._widgetPollingsDone.setStyleSheet("color: black;")
     
         self._PollingsNeeded = int(self._widgetPollingAmount.text())
         if(self._PollingsNeeded <= 0):
@@ -602,22 +597,28 @@ class MainWindow(QMainWindow):
             self._PollingsNeeded = 250
             self._widgetPollingAmount.setText(str(self._PollingsNeeded))
 
+        self._widgetStartPolling.setText("Stop Polling")
+        self._PollingsDone = 0
+        self._widgetPollingsDone.setText(f"Target: {self._PollingsNeeded}; Done: {self._PollingsDone}")
+        self._widgetPollingsDone.setStyleSheet("color: black;")
+
         self._CanWorker.StartPoll(self._PollingsNeeded)
 
     def _StopPolling(self):
         self._widgetStartPolling.setText("Start Polling")
         self._PollingsDone = 0
-        self._widgetPollingsDone.setText("Pollings Done: 0")
+        self._widgetPollingsDone.setText(f"Target: - ; Done: -")
         self._widgetPollingsDone.setStyleSheet("color: black;")
         self._PollingsNeeded = 0
 
         self._CanWorker.StartPoll(255)
 
-    def _AskStartPolling(self):
+    def _AskStartStopPolling(self, start: bool = False):
         if(self._widgetStartPolling.text() == "Stop Polling"):
             self._StopPolling()
 
-        self._StartPollingHandler()
+        if start:
+            self._StartPollingHandler()
 
     def _PrintData(self, res: bool):
         if not res:
@@ -625,8 +626,8 @@ class MainWindow(QMainWindow):
             self._widgetAuth.setText(f'Auth: None\t')
             self._widgetAuth.setStyleSheet("color: black;")
             self._widgetLastKeyNum.setText(f"Last Key Pressed Num: None\t")
-            Data = np.zeros(((self._AntAmount, self._KeyAmount, 3)))
-            self._widgetPollingsDone.setText("Pollings Done: 0")
+            Data = np.zeros((((self._AntAmount, self._KeyAmount, 3))), dtype=int)
+            self._widgetPollingsDone.setText(f"Target: - ; Done: -")
             self._PollingsDone = 0
 
         else:
@@ -642,7 +643,7 @@ class MainWindow(QMainWindow):
             isPollDone = False
             if (self._PollingsNeeded != 0):
                 self._PollingsDone += 1
-                self._widgetPollingsDone.setText(f"Pollings Done: {self._PollingsDone}")
+                self._widgetPollingsDone.setText(f"Target: {self._PollingsNeeded}; Done: {self._PollingsDone}")
         
                 if (self._PollingsDone == self._PollingsNeeded):
                     self._widgetPollingsDone.setStyleSheet("color: green;")
@@ -652,7 +653,7 @@ class MainWindow(QMainWindow):
                     self._widgetPollingsDone.setStyleSheet("color: black;")
             
             else:
-                self._widgetPollingsDone.setText("Pollings Done: 0")
+                self._widgetPollingsDone.setText(f"Target: - ; Done: -")
                 self._widgetPollingsDone.setStyleSheet("color: black;")
 
             self._interactiveData.RememberData(Data, isPollDone)
@@ -660,9 +661,9 @@ class MainWindow(QMainWindow):
 
         for nAnt in range(self._AntAmount):
             for nKey in range(self._KeyAmount):
-                self._RSSI_Widgets[nAnt][nKey].setText(f"X: {' '*(3-len(str(int(Data[nAnt][nKey][0]))))}{int(Data[nAnt][nKey][0])}\n" +
-                                                       f"Y: {' '*(3-len(str(int(Data[nAnt][nKey][1]))))}{int(Data[nAnt][nKey][1])}\n" +
-                                                       f"Z: {' '*(3-len(str(int(Data[nAnt][nKey][2]))))}{int(Data[nAnt][nKey][2])}")
+                self._RSSI_Widgets[nAnt][nKey].setText(f"X: {' '*(3-len(str(Data[nAnt][nKey][0])))}{Data[nAnt][nKey][0]}\n" +
+                                                       f"Y: {' '*(3-len(str(Data[nAnt][nKey][1])))}{Data[nAnt][nKey][1]}\n" +
+                                                       f"Z: {' '*(3-len(str(Data[nAnt][nKey][2])))}{Data[nAnt][nKey][2]}")
    
     def _PrintLogData(self): 
         time_hms = time.strftime("%H:%M:%S", time.localtime())

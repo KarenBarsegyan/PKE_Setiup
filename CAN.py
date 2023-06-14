@@ -40,7 +40,7 @@ class CanSendRecv(QThread):
     def __init__(self, ANT_AMOUNT, KEY_AMOUNT, parent=None):
         QThread.__init__(self, parent)
         self._busInitialized = False
-        self._data = np.zeros(((ANT_AMOUNT, KEY_AMOUNT, 3)))
+        self._data = np.zeros((((ANT_AMOUNT, KEY_AMOUNT, 3))), dtype=int)
         self._lastAuth = 0
         self._isAllReceived = [False]*13
         self._timeBetweenMsgs = 0
