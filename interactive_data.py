@@ -26,7 +26,6 @@ class InteractiveData(QThread):
         Green = 1
         Yellow = 2 
         Red = 3 
-        Blue = 4
         Ant = 5
 
     def __init__(self, askForPollingFunc, parent=None):
@@ -37,6 +36,7 @@ class InteractiveData(QThread):
         self._yellowPoints = dict()
         self._redPoints = dict()
         self._bluePoints = dict()
+        self._darkRedPoints = dict()
         self._keyCircles = dict()
         self._antPoints = dict()
         self._lastPos = tuple()
@@ -50,7 +50,7 @@ class InteractiveData(QThread):
         self._amountsOfAverage = 0
         self._picWidth = 0
         self._picHeight = 0
-        self._distCoeff = 0
+        self._distCoeff = dict()
 
         self._store_data_path = 'store_data'
 
@@ -228,17 +228,18 @@ class InteractiveData(QThread):
                     coeff += sumRSSI*dist*dist
                     amountOfCalcs += 1
 
-                print(f"RSSI: {sumRSSI} - Dist: {dist} - Coeff: {sumRSSI*dist*dist}")
+                print(f"ANT: {nAnt} \t RSSI: {sumRSSI} \t Dist: {int(dist)} \t Coeff: {int(sumRSSI*dist*dist)}")
                 # print(f"Ant: {nAnt}\nnKey: {nKey}\nDist: {dist}\nRSSI: {sumRSSI}")
-        if(amountOfCalcs != 0):
-            self._distCoeff = coeff/amountOfCalcs
+            if(amountOfCalcs != 0):
+                self._distCoeff[nAnt] = coeff/amountOfCalcs
+                coeff = 0
+                amountOfCalcs = 0
 
-            print(f"Mean val: {coeff/amountOfCalcs}")
+        print(f"Mean val: {self._distCoeff}")
         print("--------------------------------\n")
 
     def _calcDistance(self):
         self._keyCircles.clear()
-        self._bluePoints.clear()
 
         for antPos in self._antPoints:
             nAnt = self._antPoints[antPos]   
@@ -248,21 +249,29 @@ class InteractiveData(QThread):
             sumRSSI = int(round(sumRSSI ** 0.5))
 
             if sumRSSI > 0:
-                radius = int((self._distCoeff/sumRSSI)**0.5)
+                radius = int((self._distCoeff[nAnt]/sumRSSI)**0.5)
                 self._keyCircles[antPos] = radius
         
-
+        points = set()
+        self._bluePoints.clear()
         for circ1 in self._keyCircles:
             for circ2 in self._keyCircles:
                 r1 = self._keyCircles[circ1]
                 r2 = self._keyCircles[circ2]
-                self._findIntersectionPoint(circ1, r1, circ2, r2)
+                res = self._findIntersectionPoint(circ1, r1, circ2, r2)
+                if res:
+                    points.add(res)
+
+        pointsList = []
+        for p in points:
+            pointsList.append(p)
+        self._findKeyPoint(pointsList)
 
         self._paintMeasureEvent()
 
     def _findIntersectionPoint(self, circ1pos, r1, circ2pos, r2):
         if circ1pos == circ2pos:
-            return
+            return None
 
         xdelta = circ1pos[0]
         ydelta = circ1pos[1]
@@ -275,15 +284,22 @@ class InteractiveData(QThread):
         c = x2**2 + y2**2 + r1**2 - r2**2
 
         r = r1
-        eps = 0 #self._mesh_step/10
+        eps = 1000 #self._mesh_step/10
         x0 = -a*c/(a*a+b*b) 
         y0 = -b*c/(a*a+b*b)
 
         if (c*c > r*r*(a*a+b*b)+eps):
-            return None
+            x = (x2 * r1/(r1+r2))
+            y = (y2 * r1/(r1+r2))
+            pos = tuple([int(x+xdelta), int(y+ydelta)])
+            self._bluePoints[pos] = 0 
+            return tuple([pos, pos])
+        
         elif (abs(c*c - r*r*(a*a+b*b)) < eps):
             pos = tuple([int(x0+xdelta), int(y0+ydelta)])
-            self._setPoint(type = self.PointType.Blue, coords=pos) 
+            self._bluePoints[pos] = 0 
+            return tuple([pos, pos])
+        
         else:
             d = r*r - c*c/(a*a+b*b)
             mult = (d / (a*a+b*b))**0.5
@@ -291,10 +307,98 @@ class InteractiveData(QThread):
             bx = x0 - b * mult + xdelta
             ay = y0 - a * mult + ydelta
             by = y0 + a * mult + ydelta
-            pos = tuple([int(ax), int(ay)])
-            self._setPoint(type = self.PointType.Blue, coords=pos) 
-            pos = tuple([int(bx), int(by)])
-            self._setPoint(type = self.PointType.Blue, coords=pos) 
+            pos1 = tuple([int(ax), int(ay)])
+            self._bluePoints[pos1] = 0 
+            pos2 = tuple([int(bx), int(by)])
+            self._bluePoints[pos2] = 0 
+            res = [pos1, pos2]
+            res.sort()
+            return tuple([res[0], res[1]])
+        
+        # if (dist > r1+r2):
+        #     x = (x2 * r1/(r1+r2))
+        #     y = (y2 * r1/(r1+r2))
+        #     pos = tuple([int(x+xdelta), int(y+ydelta)])
+        #     return tuple([pos, pos])
+        
+        # elif (dist+eps > r1+r2):
+        #     pos = tuple([int(x0+xdelta), int(y0+ydelta)])
+        #     self._bluePoints[pos] = 0 
+        #     return tuple([pos, pos])
+        
+        # elif (dist < abs(r1-r2)):
+        #     x = (x2 * r1/abs(r1-r2))
+        #     y = (y2 * r1/abs(r1-r2))
+        #     pos = tuple([int(x+xdelta), int(y+ydelta)])
+        #     return tuple([pos, pos])
+        
+        # else:
+        #     d = r*r - c*c/(a*a+b*b)
+        #     mult = (d / (a*a+b*b))**0.5
+        #     ax = x0 + b * mult + xdelta
+        #     bx = x0 - b * mult + xdelta
+        #     ay = y0 - a * mult + ydelta
+        #     by = y0 + a * mult + ydelta
+        #     pos1 = tuple([int(ax), int(ay)])
+        #     self._bluePoints[pos1] = 0 
+        #     pos2 = tuple([int(bx), int(by)])
+        #     self._bluePoints[pos2] = 0 
+        #     res = [pos1, pos2]
+        #     res.sort()
+        #     return tuple([res[0], res[1]])
+
+    def _findKeyPoint(self, points):
+        self._darkRedPoints.clear()
+
+        if len(points) < 2:
+            return
+
+        iterations = []
+        for p in points:
+            iterations.append(0)
+
+        min_dist = float("inf")
+        cur_dist = 0
+        md_points = []
+        amountOfPairs = len(points)
+        for i in range(1, 2**amountOfPairs+1):
+            for j in range(amountOfPairs):
+                for g in range(amountOfPairs):
+                    if j < g:
+                        cur_dist += ((points[j][iterations[j]][0] - points[g][iterations[g]][0])**2 +
+                                     (points[j][iterations[j]][1] - points[g][iterations[g]][1])**2)**0.5
+
+            if (cur_dist < min_dist):
+                min_dist = cur_dist
+                md_points = iterations.copy()
+            cur_dist = 0            
+            
+
+            for j in range(amountOfPairs):
+                if i % (2**(j)) == 0:
+                    if iterations[j] == 0:
+                        iterations[j] = 1
+                    else:
+                        iterations[j] = 0
+
+        sumX = 0
+        sumY = 0
+        for i in range(amountOfPairs):
+            p = points[i][md_points[i]]
+
+            sumX += p[0]
+            sumY += p[1]
+
+            if p in self._bluePoints:
+                del self._bluePoints[p]
+            self._darkRedPoints[p] = 0 
+            if p in self._bluePoints:
+                del self._bluePoints[p]
+            self._darkRedPoints[p] = 0
+
+        self._redPoints.clear()
+        p = tuple([int(sumX/amountOfPairs), int(sumY/amountOfPairs)])
+        self._redPoints[p] = 0 
 
     def _populateSetAnts(self):
         self._setAntMenu.clear()
@@ -401,11 +505,6 @@ class InteractiveData(QThread):
             self._yellowPointInProgress = False
             del self._yellowPoints[pos]
             type = self.PointType.Yellow
-
-        # if pos in self._redPoints.keys():
-        #     del self._redPoints[pos]
-
-            type = self.PointType.Red
         
         if pos in self._antPoints.keys():
             del self._antPoints[pos]
@@ -440,9 +539,6 @@ class InteractiveData(QThread):
 
             elif type == self.PointType.Red: 
                 self._redPoints[pos] = 0
-
-            elif type == self.PointType.Blue: 
-                self._bluePoints[pos] = 0
 
             elif type == self.PointType.Ant:  
                 self._antPoints[pos] = antNum
@@ -571,6 +667,15 @@ class InteractiveData(QThread):
         painter.setPen(pen)
         painter.setBrush(QColor('blue'))
         for point in self._bluePoints:
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+
+        pen = QPen()
+        radius = 4
+        pen.setWidth(1)
+        pen.setColor(QColor('darkRed'))
+        painter.setPen(pen)
+        painter.setBrush(QColor('darkRed'))
+        for point in self._darkRedPoints:
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         pen = QPen()

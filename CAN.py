@@ -49,6 +49,7 @@ class CanSendRecv(QThread):
         self._firstReceivedMsg = True
         self._AntMask = 0x3F
         self._PowerMode = 0
+        self._AuthMode = 1
         self._AntAmount = ANT_AMOUNT
         self._KeyAmount = KEY_AMOUNT
         self._amountOfPollings = 0
@@ -76,7 +77,11 @@ class CanSendRecv(QThread):
             if self._busInitialized:
                 msg_to_send = can.Message(
                     arbitration_id=0x0211,
-                    data=[self._AntMask, self._PowerMode, self._amountOfPollings, 0, 0, 0, 0, 0],
+                    data=[self._AntMask, 
+                          self._PowerMode, 
+                          self._amountOfPollings, 
+                          self._AuthMode, 
+                          0, 0, 0, 0],
                     is_extended_id = False
                 )
                 self._amountOfPollings = 0
@@ -147,6 +152,10 @@ class CanSendRecv(QThread):
 
     def SetPowerMode(self, mode):
         self._PowerMode = mode
+        self._CanSend()
+
+    def SetAuthMode(self, mode):
+        self._AuthMode = mode
         self._CanSend()
     
     def StartPoll(self, amountOfPollings):

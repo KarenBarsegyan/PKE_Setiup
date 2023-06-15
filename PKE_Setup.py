@@ -38,6 +38,8 @@ class MainWindow(QMainWindow):
         self._restoreData()
 
     def closeEvent(self, *args, **kwargs):
+        self._StopPolling()
+
         try:
             self._workbook.close()
             self._logger.info("WorkBook Closed")
@@ -55,7 +57,8 @@ class MainWindow(QMainWindow):
 
         to_yaml = {
             'ants': [],
-            'keys': []
+            'keys': [],
+            'auth': 0
         }
         for nCnt in range(0, len(self._widgetAntCheckBox)):
             if self._widgetAntCheckBox[nCnt].isChecked():
@@ -64,6 +67,9 @@ class MainWindow(QMainWindow):
         for nCnt in range(0, len(self._widgetKeyCheckBox)):
             if self._widgetKeyCheckBox[nCnt].isChecked():
                 to_yaml['keys'].append(nCnt)
+
+        if self._widgetAuthCheckBox.isChecked(): 
+            to_yaml['auth'] = 1
            
         with open(f'{self._store_data_path}/keys_ants', 'w') as f:
             yaml.dump(to_yaml, f)
@@ -325,6 +331,20 @@ class MainWindow(QMainWindow):
         self._widgetAuth.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         StatusesBox.addWidget(self._widgetAuth)
 
+        horLayout = QHBoxLayout()
+
+        self._widgetAuthCheckBox = QCheckBox()
+        font = self._widgetAuthCheckBox.font()
+        font.setPointSize(11)
+        self._widgetAuthCheckBox.setFont(font)
+        self._widgetAuthCheckBox.setChecked(True)
+        self._widgetAuthCheckBox.setText("Perform auth")
+        self._widgetAuthCheckBox.stateChanged.connect(self._performAuthState)
+        horLayout.addWidget(self._widgetAuthCheckBox)
+
+        horLayout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        StatusesBox.addLayout(horLayout)
+
         self._layoutWidgets.addWidget(StatusGroupbox)
 
     def _SetStartPolling(self):
@@ -366,6 +386,13 @@ class MainWindow(QMainWindow):
         self._widgetStartPolling.setFont(font)
         StartPollingBox.addWidget(self._widgetStartPolling)
         self._widgetStartPolling.clicked.connect(self._StartPollingHandler)
+
+        self._widgetStartRepeatPolling = QPushButton("Start Repeat Polling")
+        font = self._widgetStartRepeatPolling.font()
+        font.setPointSize(12)
+        self._widgetStartRepeatPolling.setFont(font)
+        StartPollingBox.addWidget(self._widgetStartRepeatPolling)
+        self._widgetStartRepeatPolling.clicked.connect(self._StartRepeatPollingHandler)
 
         self._layoutWidgets.addWidget(StartPollingGroupbox)
 
@@ -526,11 +553,15 @@ class MainWindow(QMainWindow):
                 if nCnt not in keysAntsData['keys']:
                     self._widgetKeyCheckBox[nCnt].setChecked(False)
 
+            if keysAntsData['auth'] == 0:
+                self._widgetAuthCheckBox.setChecked(False)
+
         except:
             self._logger.info("Create new \"keys_ants\" file")
             to_yaml = {
                 'ants': [0, 1, 2, 3, 4, 5],
-                'keys': [0, 1, 2, 3, 4]
+                'keys': [0, 1, 2, 3, 4],
+                'auth': 1
             }
             with open(f'{self._store_data_path}/keys_ants', 'w') as f:
                 yaml.dump(to_yaml, f)
@@ -541,6 +572,7 @@ class MainWindow(QMainWindow):
         self._widgetUsbConnect.setFlat(False)
 
     def _BusDeInitHandler(self):
+        self._StopPolling()
         self._CanWorker.BusDeInit()
 
     def _BusInitedCallback(self):
@@ -598,6 +630,7 @@ class MainWindow(QMainWindow):
             self._widgetPollingAmount.setText(str(self._PollingsNeeded))
 
         self._widgetStartPolling.setText("Stop Polling")
+        self._widgetStartRepeatPolling.setText("Start Repeat Polling")
         self._PollingsDone = 0
         self._widgetPollingsDone.setText(f"Target: {self._PollingsNeeded}; Done: {self._PollingsDone}")
         self._widgetPollingsDone.setStyleSheet("color: black;")
@@ -606,12 +639,35 @@ class MainWindow(QMainWindow):
 
     def _StopPolling(self):
         self._widgetStartPolling.setText("Start Polling")
+        self._widgetStartRepeatPolling.setText("Start Repeat Polling")
         self._PollingsDone = 0
         self._widgetPollingsDone.setText(f"Target: - ; Done: -")
         self._widgetPollingsDone.setStyleSheet("color: black;")
         self._PollingsNeeded = 0
 
         self._CanWorker.StartPoll(255)
+
+    def _StartRepeatPollingHandler(self):
+        if(self._widgetStartRepeatPolling.text() == "Stop Repeat Polling"):
+            self._StopPolling()
+            return
+            
+        self._widgetStartPolling.setText("Start Polling")
+        self._widgetStartRepeatPolling.setText("Stop Repeat Polling")
+        self._PollingsDone = 0
+        self._widgetPollingsDone.setText(f"Target: ∞ ; Done: -")
+        self._widgetPollingsDone.setStyleSheet("color: black;")
+        self._PollingsNeeded = 0
+
+        self._CanWorker.StartPoll(254)
+
+    def _performAuthState(self):
+        if self._widgetAuthCheckBox.isChecked():
+            self._CanWorker.SetAuthMode(1)
+        else:
+            self._CanWorker.SetAuthMode(0)
+            self._widgetAuth.setText(f'Auth: None\t')
+            self._widgetAuth.setStyleSheet("color: black;")
 
     def _AskStartStopPolling(self, start: bool = False):
         if(self._widgetStartPolling.text() == "Stop Polling"):
@@ -633,12 +689,14 @@ class MainWindow(QMainWindow):
         else:
             Data = self._CanWorker.Data
             self._widgetCanMsgPeriod.setText(f"Msg Period: {int(self._CanWorker.TimeBetweenMsgs)} ms")
-            if self._CanWorker.AuthStatus:
-                self._widgetAuth.setText(f'Auth: OK')
-                self._widgetAuth.setStyleSheet("color: green;")
-            else:
-                self._widgetAuth.setText(f'Auth: Fail')
-                self._widgetAuth.setStyleSheet("color: red;")
+            
+            if self._widgetAuthCheckBox.isChecked():
+                if self._CanWorker.AuthStatus:
+                    self._widgetAuth.setText(f'Auth: OK')
+                    self._widgetAuth.setStyleSheet("color: green;")
+                else:
+                    self._widgetAuth.setText(f'Auth: Fail')
+                    self._widgetAuth.setStyleSheet("color: red;")
 
             isPollDone = False
             if (self._PollingsNeeded != 0):
@@ -652,9 +710,9 @@ class MainWindow(QMainWindow):
                 else:
                     self._widgetPollingsDone.setStyleSheet("color: black;")
             
-            else:
-                self._widgetPollingsDone.setText(f"Target: - ; Done: -")
-                self._widgetPollingsDone.setStyleSheet("color: black;")
+            # elif (self._PollingsNeeded != 254):
+            #     self._widgetPollingsDone.setText(f"Target: - ; Done: -")
+            #     self._widgetPollingsDone.setStyleSheet("color: black;")
 
             self._interactiveData.RememberData(Data, isPollDone)
             self._PrintLogData()
