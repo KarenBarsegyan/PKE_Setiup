@@ -1,13 +1,15 @@
 
 from PyQt5.QtWidgets import (
     QVBoxLayout, QLabel,
-    QWidget, QScrollArea, QMenu,
-    QAction
+    QWidget, QScrollArea, 
+    QMenu, QAction
 )
 from PyQt5.QtGui import (
     QPixmap, QPainter, QPen, QColor
 )
-from PyQt5.QtCore import Qt, QThread, QPoint, QSize, QRect, pyqtSignal
+from PyQt5.QtCore import (
+    Qt, QThread, QPoint, QSize, QRect
+)
 import logging
 import os
 import numpy as np
@@ -211,194 +213,186 @@ class InteractiveData(QThread):
         return scrollPicture    
 
     def Calibrate(self):
-        # self._calibration_data = np.zeros((((self._AntAmount, self._KeyAmount, 1))), dtype=int)
-        coeff = 0
-        amountOfCalcs = 0
-        for antPos in self._antPoints:
-            nAnt = self._antPoints[antPos]   
-            for gPos in self._greenPoints:
-                for nKey in range(1):
-                    sumRSSI = 0
-                    for i in range(3):
-                        sumRSSI += (self._greenPoints[gPos][nAnt][nKey][i])**2
+        try:
+            coeff = 0
+            amountOfCalcs = 0
+            for antPos in self._antPoints:
+                nAnt = self._antPoints[antPos]   
+                for gPos in self._greenPoints:
+                    for nKey in range(1):
+                        sumRSSI = 0
+                        for i in range(3):
+                            sumRSSI += (self._greenPoints[gPos][nAnt][nKey][i])**2
 
-                    sumRSSI = int(round(sumRSSI ** 0.5))
-                    dist = ((gPos[0] - antPos[0])**2 + (gPos[1] - antPos[1])**2)**0.5
+                        sumRSSI = int(round(sumRSSI ** 0.5))
+                        dist = ((gPos[0] - antPos[0])**2 + (gPos[1] - antPos[1])**2)**0.5
 
-                    coeff += sumRSSI*dist*dist
-                    amountOfCalcs += 1
+                        coeff += sumRSSI*dist*dist
+                        amountOfCalcs += 1
 
-                print(f"ANT: {nAnt} \t RSSI: {sumRSSI} \t Dist: {int(dist)} \t Coeff: {int(sumRSSI*dist*dist)}")
-                # print(f"Ant: {nAnt}\nnKey: {nKey}\nDist: {dist}\nRSSI: {sumRSSI}")
-            if(amountOfCalcs != 0):
-                self._distCoeff[nAnt] = coeff/amountOfCalcs
-                coeff = 0
-                amountOfCalcs = 0
+                    # print(f"ANT: {nAnt} \t RSSI: {sumRSSI} \t Dist: {int(dist)} \t Coeff: {int(sumRSSI*dist*dist)}")
+                    # print(f"Ant: {nAnt}\nnKey: {nKey}\nDist: {dist}\nRSSI: {sumRSSI}")
+                if(amountOfCalcs != 0):
+                    self._distCoeff[nAnt] = coeff/amountOfCalcs
+                    coeff = 0
+                    amountOfCalcs = 0
 
-        print(f"Mean val: {self._distCoeff}")
-        print("--------------------------------\n")
+            # print(f"Mean val: {self._distCoeff}")
+            # print("--------------------------------\n")
+        except:
+            self._logger.warning("No data to calibrate")
 
     def _calcDistance(self):
-        self._keyCircles.clear()
+        try:
+            self._keyCircles.clear()
 
-        for antPos in self._antPoints:
-            nAnt = self._antPoints[antPos]   
-            sumRSSI = 0
-            for i in range(3):
-                sumRSSI += (self._data[nAnt][0][i])**2
-            sumRSSI = int(round(sumRSSI ** 0.5))
+            for antPos in self._antPoints:
+                nAnt = self._antPoints[antPos]   
+                sumRSSI = 0
+                for i in range(3):
+                    sumRSSI += (self._data[nAnt][0][i])**2
+                sumRSSI = int(round(sumRSSI ** 0.5))
 
-            if sumRSSI > 0:
-                radius = int((self._distCoeff[nAnt]/sumRSSI)**0.5)
-                self._keyCircles[antPos] = radius
-        
-        points = set()
-        self._bluePoints.clear()
-        for circ1 in self._keyCircles:
-            for circ2 in self._keyCircles:
-                r1 = self._keyCircles[circ1]
-                r2 = self._keyCircles[circ2]
-                res = self._findIntersectionPoint(circ1, r1, circ2, r2)
-                if res:
-                    points.add(res)
+                if sumRSSI > 0:
+                    radius = int((self._distCoeff[nAnt]/sumRSSI)**0.5)
+                    self._keyCircles[antPos] = radius
 
-        pointsList = []
-        for p in points:
-            pointsList.append(p)
-        self._findKeyPoint(pointsList)
+            points = set()
+            self._bluePoints.clear()
+            for circ1 in self._keyCircles:
+                for circ2 in self._keyCircles:
+                    r1 = self._keyCircles[circ1]
+                    r2 = self._keyCircles[circ2]
+                    res = self._findIntersectionPoint(circ1, r1, circ2, r2)
+                    if res:
+                        points.add(res)
 
-        self._paintMeasureEvent()
+            pointsList = []
+            for p in points:
+                pointsList.append(p)
+            self._findKeyPoint(pointsList)
+
+            self._paintMeasureEvent()
+        except:
+            self._logger.warning("Calc Distance Error")
 
     def _findIntersectionPoint(self, circ1pos, r1, circ2pos, r2):
-        if circ1pos == circ2pos:
-            return None
+        try:
+            if circ1pos == circ2pos:
+                return None
 
-        xdelta = circ1pos[0]
-        ydelta = circ1pos[1]
+            xdelta = circ1pos[0]
+            ydelta = circ1pos[1]
 
-        x2 = circ2pos[0] - xdelta
-        y2 = circ2pos[1] - ydelta
+            x2 = circ2pos[0] - xdelta
+            y2 = circ2pos[1] - ydelta
 
-        a = -2*x2
-        b = -2*y2
-        c = x2**2 + y2**2 + r1**2 - r2**2
+            a = -2*x2
+            b = -2*y2
+            c = x2**2 + y2**2 + r1**2 - r2**2
 
-        r = r1
-        eps = 1000 #self._mesh_step/10
-        x0 = -a*c/(a*a+b*b) 
-        y0 = -b*c/(a*a+b*b)
+            r = r1
+            eps = self._mesh_step/10
+            x0 = -a*c/(a*a+b*b) 
+            y0 = -b*c/(a*a+b*b)
+            
+            dist = (x2**2 + y2**2)**0.5
+            if (dist > r1+r2):
+                x = (x2 * (((dist-r1-r2)/2) + r1)/dist)
+                y = (y2 * (((dist-r1-r2)/2) + r1)/dist)
+                pos = tuple([int(x+xdelta), int(y+ydelta)])
+                self._bluePoints[pos] = 0 
+                return tuple([pos, pos])
+            
+            elif (dist+eps > r1+r2):
+                pos = tuple([int(x0+xdelta), int(y0+ydelta)])
+                self._bluePoints[pos] = 0 
+                return tuple([pos, pos])
+            
+            elif (dist-eps < abs(r1-r2)):
+                if(r1>r2):
+                    x = (x2 * ((r1-dist-r2)/2+dist+r2)/dist)
+                    y = (y2 * ((r1-dist-r2)/2+dist+r2)/dist)
+                else:
+                    x = -(x2 * ((r1-dist-r2)/2+r2)/dist)
+                    y = -(y2 * ((r1-dist-r2)/2+r2)/dist)
 
-        if (c*c > r*r*(a*a+b*b)+eps):
-            x = (x2 * r1/(r1+r2))
-            y = (y2 * r1/(r1+r2))
-            pos = tuple([int(x+xdelta), int(y+ydelta)])
-            self._bluePoints[pos] = 0 
-            return tuple([pos, pos])
+                pos = tuple([int(x+xdelta), int(y+ydelta)])
+                self._bluePoints[pos] = 0 
         
-        elif (abs(c*c - r*r*(a*a+b*b)) < eps):
-            pos = tuple([int(x0+xdelta), int(y0+ydelta)])
-            self._bluePoints[pos] = 0 
-            return tuple([pos, pos])
-        
-        else:
-            d = r*r - c*c/(a*a+b*b)
-            mult = (d / (a*a+b*b))**0.5
-            ax = x0 + b * mult + xdelta
-            bx = x0 - b * mult + xdelta
-            ay = y0 - a * mult + ydelta
-            by = y0 + a * mult + ydelta
-            pos1 = tuple([int(ax), int(ay)])
-            self._bluePoints[pos1] = 0 
-            pos2 = tuple([int(bx), int(by)])
-            self._bluePoints[pos2] = 0 
-            res = [pos1, pos2]
-            res.sort()
-            return tuple([res[0], res[1]])
-        
-        # if (dist > r1+r2):
-        #     x = (x2 * r1/(r1+r2))
-        #     y = (y2 * r1/(r1+r2))
-        #     pos = tuple([int(x+xdelta), int(y+ydelta)])
-        #     return tuple([pos, pos])
-        
-        # elif (dist+eps > r1+r2):
-        #     pos = tuple([int(x0+xdelta), int(y0+ydelta)])
-        #     self._bluePoints[pos] = 0 
-        #     return tuple([pos, pos])
-        
-        # elif (dist < abs(r1-r2)):
-        #     x = (x2 * r1/abs(r1-r2))
-        #     y = (y2 * r1/abs(r1-r2))
-        #     pos = tuple([int(x+xdelta), int(y+ydelta)])
-        #     return tuple([pos, pos])
-        
-        # else:
-        #     d = r*r - c*c/(a*a+b*b)
-        #     mult = (d / (a*a+b*b))**0.5
-        #     ax = x0 + b * mult + xdelta
-        #     bx = x0 - b * mult + xdelta
-        #     ay = y0 - a * mult + ydelta
-        #     by = y0 + a * mult + ydelta
-        #     pos1 = tuple([int(ax), int(ay)])
-        #     self._bluePoints[pos1] = 0 
-        #     pos2 = tuple([int(bx), int(by)])
-        #     self._bluePoints[pos2] = 0 
-        #     res = [pos1, pos2]
-        #     res.sort()
-        #     return tuple([res[0], res[1]])
+                return tuple([pos, pos])
+            else:
+                d = r*r - c*c/(a*a+b*b)
+                mult = (d / (a*a+b*b))**0.5
+                ax = x0 + b * mult + xdelta
+                bx = x0 - b * mult + xdelta
+                ay = y0 - a * mult + ydelta
+                by = y0 + a * mult + ydelta
+                pos1 = tuple([int(ax), int(ay)])
+                self._bluePoints[pos1] = 0 
+                pos2 = tuple([int(bx), int(by)])
+                self._bluePoints[pos2] = 0 
+                res = [pos1, pos2]
+                res.sort()
+                return tuple([res[0], res[1]])
+        except:
+            self._logger.warning("Find Intersection Error")
 
     def _findKeyPoint(self, points):
-        self._darkRedPoints.clear()
+        try:
+            self._darkRedPoints.clear()
 
-        if len(points) < 2:
-            return
+            if len(points) < 2:
+                return
 
-        iterations = []
-        for p in points:
-            iterations.append(0)
+            iterations = []
+            for p in points:
+                iterations.append(0)
 
-        min_dist = float("inf")
-        cur_dist = 0
-        md_points = []
-        amountOfPairs = len(points)
-        for i in range(1, 2**amountOfPairs+1):
-            for j in range(amountOfPairs):
-                for g in range(amountOfPairs):
-                    if j < g:
-                        cur_dist += ((points[j][iterations[j]][0] - points[g][iterations[g]][0])**2 +
-                                     (points[j][iterations[j]][1] - points[g][iterations[g]][1])**2)**0.5
+            min_dist = float("inf")
+            cur_dist = 0
+            md_points = []
+            amountOfPairs = len(points)
+            for i in range(1, 2**amountOfPairs+1):
+                for j in range(amountOfPairs):
+                    for g in range(amountOfPairs):
+                        if j < g:
+                            cur_dist += ((points[j][iterations[j]][0] - points[g][iterations[g]][0])**2 +
+                                        (points[j][iterations[j]][1] - points[g][iterations[g]][1])**2)**0.5
 
-            if (cur_dist < min_dist):
-                min_dist = cur_dist
-                md_points = iterations.copy()
-            cur_dist = 0            
-            
+                if (cur_dist < min_dist):
+                    min_dist = cur_dist
+                    md_points = iterations.copy()
+                cur_dist = 0            
+                
 
-            for j in range(amountOfPairs):
-                if i % (2**(j)) == 0:
-                    if iterations[j] == 0:
-                        iterations[j] = 1
-                    else:
-                        iterations[j] = 0
+                for j in range(amountOfPairs):
+                    if i % (2**(j)) == 0:
+                        if iterations[j] == 0:
+                            iterations[j] = 1
+                        else:
+                            iterations[j] = 0
 
-        sumX = 0
-        sumY = 0
-        for i in range(amountOfPairs):
-            p = points[i][md_points[i]]
+            sumX = 0
+            sumY = 0
+            for i in range(amountOfPairs):
+                p = points[i][md_points[i]]
 
-            sumX += p[0]
-            sumY += p[1]
+                sumX += p[0]
+                sumY += p[1]
 
-            if p in self._bluePoints:
-                del self._bluePoints[p]
-            self._darkRedPoints[p] = 0 
-            if p in self._bluePoints:
-                del self._bluePoints[p]
-            self._darkRedPoints[p] = 0
+                if p in self._bluePoints:
+                    del self._bluePoints[p]
+                self._darkRedPoints[p] = 0 
+                if p in self._bluePoints:
+                    del self._bluePoints[p]
+                self._darkRedPoints[p] = 0
 
-        self._redPoints.clear()
-        p = tuple([int(sumX/amountOfPairs), int(sumY/amountOfPairs)])
-        self._redPoints[p] = 0 
+            self._redPoints.clear()
+            p = tuple([int(sumX/amountOfPairs), int(sumY/amountOfPairs)])
+            self._redPoints[p] = 0 
+        except:
+            self._logger.warning("Find key point Error")
 
     def _populateSetAnts(self):
         self._setAntMenu.clear()

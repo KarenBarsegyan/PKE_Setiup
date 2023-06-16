@@ -6,9 +6,11 @@ from PyQt5.QtWidgets import (
     QFrame, QTabWidget, QScrollArea
 )
 from PyQt5.QtGui import (
-    QFont, QPolygon, QIntValidator
+    QFont, QIntValidator
 )
-from PyQt5.QtCore import Qt, QSize, QThread
+from PyQt5.QtCore import (
+    Qt, QSize, QThread
+)
 import numpy as np
 import time
 import xlsxwriter
