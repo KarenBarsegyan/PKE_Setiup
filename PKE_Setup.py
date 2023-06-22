@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QCheckBox, QVBoxLayout, 
     QApplication, QLabel, QHBoxLayout, 
     QWidget, QPushButton, QLineEdit, 
-    QGroupBox, QSpacerItem,
+    QGroupBox, QSpacerItem, QSlider,
     QFrame, QTabWidget, QScrollArea
 )
 from PyQt5.QtGui import (
@@ -31,6 +31,9 @@ class MainWindow(QMainWindow):
         self._store_data_path = "store_data"
         self._logs_path = "app_logs"
         self._PollingsDone = 0
+        self._AuthsDone = 0
+        self._authStatus = False
+        self._pollingInProgress = False
         self._PollingsNeeded = 1
 
         self._InitLogger()
@@ -145,6 +148,7 @@ class MainWindow(QMainWindow):
         self._SetLogs()
         self._SetAntCheckBox()
         self._SetKeyCheckBox()
+        self._SetAntCurrents()
 
         self._PrintData(False)
         
@@ -335,6 +339,13 @@ class MainWindow(QMainWindow):
 
         horLayout = QHBoxLayout()
 
+        self._widgetAuthsDone = QLabel()
+        font = self._widgetAuthsDone.font()
+        font.setPointSize(12)
+        self._widgetAuthsDone.setFont(font)
+        self._widgetAuthsDone.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        StatusesBox.addWidget(self._widgetAuthsDone)
+
         self._widgetAuthCheckBox = QCheckBox()
         font = self._widgetAuthCheckBox.font()
         font.setPointSize(11)
@@ -452,6 +463,35 @@ class MainWindow(QMainWindow):
 
         self._layoutWidgets.addWidget(groupbox)
 
+    def _SetAntCurrents(self):
+        groupbox = QGroupBox("Ants currents")
+        font = groupbox.font()
+        font.setPointSize(10)
+        groupbox.setFont(font)
+        Currbox = QVBoxLayout()
+        Currbox.setSpacing(10)
+        groupbox.setLayout(Currbox)
+    
+        self._widgetCurrSlider = QSlider(Qt.Horizontal)
+        self._widgetCurrSlider.setRange(1, 0x40)
+        self._widgetCurrSlider.setValue(0x20)
+        self._widgetCurrSlider.setSingleStep(1)
+        self._widgetCurrSlider.setPageStep(100)
+        self._widgetCurrSlider.setTickInterval(0x1F)
+        self._widgetCurrSlider.setTickPosition(QSlider.TicksBelow)
+        self._widgetCurrSlider.valueChanged.connect(self._currentChangedHandler)
+        Currbox.addWidget(self._widgetCurrSlider)
+
+        self._widAntCurrValue = QLabel()
+        font = self._widAntCurrValue.font()
+        font.setPointSize(12)
+        self._widAntCurrValue.setFont(font)
+        self._widAntCurrValue.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        Currbox.addWidget(self._widAntCurrValue)
+        self._currentChangedHandler()        
+
+        self._layoutWidgets.addWidget(groupbox)
+
     def _SetAntCheckBox(self):
         groupbox = QGroupBox("Ants for polling")
         font = groupbox.font()
@@ -536,6 +576,7 @@ class MainWindow(QMainWindow):
         self._CanWorker.canInited.connect(self._BusInitedCallback)
         self._CanWorker.canDeInited.connect(self._BusDeInitedCallback)
         self._CanWorker.keyNumIdReceived.connect(self._LastKeyIdUpdate)
+        self._CanWorker.keyAuthReceived.connect(self._LastAuthUpdate)
         self._CanWorker.canReceivedAll.connect(self._PrintData)
         
         self._CanThread.start()
@@ -608,6 +649,30 @@ class MainWindow(QMainWindow):
     def _LastKeyIdUpdate(self, lastPressedKey):
         self._widgetLastKeyNum.setText(f"Last Key Pressed Num: {lastPressedKey}\t\t")
 
+    def _LastAuthUpdate(self, authStatus):
+        if self._widgetAuthCheckBox.isChecked() and self._pollingInProgress:
+            self._AuthsDone += 1
+            if self._AuthsDone > 250:
+                self._AuthsDone = 1
+
+            self._widgetAuthsDone.setText(f'Auth msg got: {self._AuthsDone}')
+
+            if authStatus:
+                self._authStatus = True
+                self._widgetAuth.setText(f'Auth: OK')
+                self._widgetAuth.setStyleSheet("color: green;")
+            else:
+                self._authStatus = False
+                self._widgetAuth.setText(f'Auth: Fail')
+                self._widgetAuth.setStyleSheet("color: red;")
+
+    def _currentChangedHandler(self):
+        val = self._widgetCurrSlider.value()
+        self._widAntCurrValue.setText('Current: %.2f mA' % (15.625*(val)))
+        try:
+            self._CanWorker.setCurrent(val)
+        except: pass
+
     def _ChangeModeHandler(self):
         if self._PowerMode == 0:
             self._PowerMode = 1 #PowerDown
@@ -622,7 +687,8 @@ class MainWindow(QMainWindow):
         if(self._widgetStartPolling.text() == "Stop Polling"):
             self._StopPolling()
             return
-    
+
+        self._pollingInProgress = True
         self._PollingsNeeded = int(self._widgetPollingAmount.text())
         if(self._PollingsNeeded <= 0):
             self._PollingsNeeded = 1
@@ -634,17 +700,21 @@ class MainWindow(QMainWindow):
         self._widgetStartPolling.setText("Stop Polling")
         self._widgetStartRepeatPolling.setText("Start Repeat Polling")
         self._PollingsDone = 0
+        self._AuthsDone = 0
         self._widgetPollingsDone.setText(f"Target: {self._PollingsNeeded}; Done: {self._PollingsDone}")
         self._widgetPollingsDone.setStyleSheet("color: black;")
 
         self._CanWorker.StartPoll(self._PollingsNeeded)
 
     def _StopPolling(self):
+        self._pollingInProgress = False
         self._widgetStartPolling.setText("Start Polling")
         self._widgetStartRepeatPolling.setText("Start Repeat Polling")
         self._PollingsDone = 0
         self._widgetPollingsDone.setText(f"Target: - ; Done: -")
         self._widgetPollingsDone.setStyleSheet("color: black;")
+        self._widgetAuthsDone.setText(f'Auth msg got: -')
+        self._AuthsDone = 0
         self._PollingsNeeded = 0
 
         self._CanWorker.StartPoll(255)
@@ -653,11 +723,13 @@ class MainWindow(QMainWindow):
         if(self._widgetStartRepeatPolling.text() == "Stop Repeat Polling"):
             self._StopPolling()
             return
-            
+        
+        self._pollingInProgress = True
         self._widgetStartPolling.setText("Start Polling")
         self._widgetStartRepeatPolling.setText("Stop Repeat Polling")
         self._PollingsDone = 0
-        self._widgetPollingsDone.setText(f"Target: ∞ ; Done: -")
+        self._AuthsDone = 0
+        self._widgetPollingsDone.setText(f"Target: ∞ ; Done: {self._PollingsDone}")
         self._widgetPollingsDone.setStyleSheet("color: black;")
         self._PollingsNeeded = 0
 
@@ -670,6 +742,8 @@ class MainWindow(QMainWindow):
             self._CanWorker.SetAuthMode(0)
             self._widgetAuth.setText(f'Auth: None\t')
             self._widgetAuth.setStyleSheet("color: black;")
+            self._widgetAuthsDone.setText(f'Auth msg got: -')
+            self._AuthsDone = 0
 
     def _AskStartStopPolling(self, start: bool = False):
         if(self._widgetStartPolling.text() == "Stop Polling"):
@@ -683,6 +757,7 @@ class MainWindow(QMainWindow):
             self._widgetCanMsgPeriod.setText("Msg Period: 0 ms")
             self._widgetAuth.setText(f'Auth: None\t')
             self._widgetAuth.setStyleSheet("color: black;")
+            self._widgetAuthsDone.setText(f'Auth msg got: -')
             self._widgetLastKeyNum.setText(f"Last Key Pressed Num: None\t")
             Data = np.zeros((((self._AntAmount, self._KeyAmount, 3))), dtype=int)
             self._widgetPollingsDone.setText(f"Target: - ; Done: -")
@@ -691,17 +766,9 @@ class MainWindow(QMainWindow):
         else:
             Data = self._CanWorker.Data
             self._widgetCanMsgPeriod.setText(f"Msg Period: {int(self._CanWorker.TimeBetweenMsgs)} ms")
-            
-            if self._widgetAuthCheckBox.isChecked():
-                if self._CanWorker.AuthStatus:
-                    self._widgetAuth.setText(f'Auth: OK')
-                    self._widgetAuth.setStyleSheet("color: green;")
-                else:
-                    self._widgetAuth.setText(f'Auth: Fail')
-                    self._widgetAuth.setStyleSheet("color: red;")
 
             isPollDone = False
-            if (self._PollingsNeeded != 0):
+            if (self._PollingsNeeded != 0 and self._pollingInProgress):
                 self._PollingsDone += 1
                 self._widgetPollingsDone.setText(f"Target: {self._PollingsNeeded}; Done: {self._PollingsDone}")
         
@@ -711,10 +778,13 @@ class MainWindow(QMainWindow):
                     self._widgetStartPolling.setText("Start Polling")
                 else:
                     self._widgetPollingsDone.setStyleSheet("color: black;")
-            
-            # elif (self._PollingsNeeded != 254):
-            #     self._widgetPollingsDone.setText(f"Target: - ; Done: -")
-            #     self._widgetPollingsDone.setStyleSheet("color: black;")
+
+            elif (self._pollingInProgress):
+                self._PollingsDone += 1
+                if self._PollingsDone > 250:
+                    self._PollingsDone = 1
+                    
+                self._widgetPollingsDone.setText(f"Target: ∞ ; Done: {self._PollingsDone}")
 
             self._interactiveData.RememberData(Data, isPollDone)
             self._PrintLogData()
@@ -736,7 +806,7 @@ class MainWindow(QMainWindow):
         self._worksheet.write(self._row, self._column+2, 'Date: ', bold)
         self._worksheet.write(self._row, self._column+3, f'{time_dmy}')
         
-        if self._CanWorker.AuthStatus:
+        if self._authStatus:
             self._worksheet.write(self._row, self._column+5, 'Auth OK', bold)
         else:
             self._worksheet.write(self._row, self._column+5, 'Auth Fail', bold)
@@ -771,7 +841,7 @@ class MainWindow(QMainWindow):
         self._worksheet_single.write(self._row_single, self._column_single+2, 'Date: ', bold)
         self._worksheet_single.write(self._row_single, self._column_single+3, f'{time_dmy}')
 
-        if self._CanWorker.AuthStatus:
+        if self._authStatus:
             self._worksheet_single.write(self._row_single, self._column_single+5, 'Auth OK', bold)
         else:
             self._worksheet_single.write(self._row_single, self._column_single+5, 'Auth Fail', bold)

@@ -36,13 +36,13 @@ class CanSendRecv(QThread):
     canDeInited = pyqtSignal()
     canReceivedAll = pyqtSignal(bool)
     keyNumIdReceived = pyqtSignal(int)
+    keyAuthReceived = pyqtSignal(int)
 
     def __init__(self, ANT_AMOUNT, KEY_AMOUNT, parent=None):
         QThread.__init__(self, parent)
         self._busInitialized = False
         self._data = np.zeros((((ANT_AMOUNT, KEY_AMOUNT, 3))), dtype=int)
-        self._lastAuth = 0
-        self._isAllReceived = [False]*13
+        self._isAllReceived = [False]*12
         self._timeBetweenMsgs = 0
         self._lastMsgTime = 0
         self._firstMsgTime = 0
@@ -81,10 +81,13 @@ class CanSendRecv(QThread):
                           self._PowerMode, 
                           self._amountOfPollings, 
                           self._AuthMode, 
-                          0, 0, 0, 0],
+                          0,
+                          self._Current,
+                          0, 0],
                     is_extended_id = False
                 )
                 self._amountOfPollings = 0
+                self._Current = 0
 
                 try:
                     self._bus.send(msg_to_send)
@@ -142,10 +145,6 @@ class CanSendRecv(QThread):
     def TimeBetweenMsgs(self):
         return self._timeBetweenMsgs
     
-    @property
-    def AuthStatus(self):
-        return self._lastAuth
-    
     def SetAntMask(self, mask):
         self._AntMask = mask
         self._CanSend()
@@ -156,6 +155,10 @@ class CanSendRecv(QThread):
 
     def SetAuthMode(self, mode):
         self._AuthMode = mode
+        self._CanSend()
+
+    def setCurrent(self, curr):
+        self._Current = curr
         self._CanSend()
     
     def StartPoll(self, amountOfPollings):
@@ -169,8 +172,8 @@ class CanSendRecv(QThread):
             self.keyNumIdReceived.emit(lastPressedKey)
 
         elif msg.arbitration_id == PKE_AUTH_OK_ID:
-            self._isAllReceived[12] = True
-            self._lastAuth = int(msg.data[1])
+            lastAuth = int(msg.data[1])
+            self.keyAuthReceived.emit(lastAuth)
 
         elif msg.arbitration_id == PKE_ANT1_KEY_1_2_3_ID:
             self._isAllReceived[0] = True
