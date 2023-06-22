@@ -476,7 +476,7 @@ class MainWindow(QMainWindow):
         self._widgetCurrSlider.setRange(1, 0x40)
         self._widgetCurrSlider.setValue(0x20)
         self._widgetCurrSlider.setSingleStep(1)
-        self._widgetCurrSlider.setPageStep(100)
+        self._widgetCurrSlider.setPageStep(2)
         self._widgetCurrSlider.setTickInterval(0x1F)
         self._widgetCurrSlider.setTickPosition(QSlider.TicksBelow)
         self._widgetCurrSlider.valueChanged.connect(self._currentChangedHandler)
