@@ -28,6 +28,8 @@ PKE_ANT6_KEY_1_2_3_ID = 0x011C
 PKE_ANT6_KEY_3_4_5_ID = 0x011D
 
 PKE_AUTH_OK_ID        = 0x011E
+PKE_DIAG_STATE_ID     = 0x011F
+PKE_ANT_IMPS_ID       = 0x0120
 
 
 class CanSendRecv(QThread):
@@ -50,6 +52,8 @@ class CanSendRecv(QThread):
         self._AntMask = 0x3F
         self._PowerMode = 0
         self._AuthMode = 1
+        self._PerformDiag = 0
+        self._Current = 0x1F
         self._AntAmount = ANT_AMOUNT
         self._KeyAmount = KEY_AMOUNT
         self._amountOfPollings = 0
@@ -81,12 +85,13 @@ class CanSendRecv(QThread):
                           self._PowerMode, 
                           self._amountOfPollings, 
                           self._AuthMode, 
-                          0,
+                          self._PerformDiag,
                           self._Current,
                           0, 0],
                     is_extended_id = False
                 )
                 self._amountOfPollings = 0
+                self._PerformDiag = 0
                 self._Current = 0
 
                 try:
@@ -157,6 +162,10 @@ class CanSendRecv(QThread):
         self._AuthMode = mode
         self._CanSend()
 
+    def performDiag(self):
+        self._PerformDiag = 1
+        self._CanSend()
+
     def setCurrent(self, curr):
         self._Current = curr
         self._CanSend()
@@ -174,6 +183,12 @@ class CanSendRecv(QThread):
         elif msg.arbitration_id == PKE_AUTH_OK_ID:
             lastAuth = int(msg.data[1])
             self.keyAuthReceived.emit(lastAuth)
+
+        elif msg.arbitration_id == PKE_DIAG_STATE_ID:
+            diagState = int(msg.data)
+
+        elif msg.arbitration_id == PKE_ANT_IMPS_ID:
+            amtImps = int(msg.data)
 
         elif msg.arbitration_id == PKE_ANT1_KEY_1_2_3_ID:
             self._isAllReceived[0] = True

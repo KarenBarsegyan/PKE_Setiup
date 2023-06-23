@@ -407,6 +407,13 @@ class MainWindow(QMainWindow):
         StartPollingBox.addWidget(self._widgetStartRepeatPolling)
         self._widgetStartRepeatPolling.clicked.connect(self._StartRepeatPollingHandler)
 
+        self._widgetAntDiag = QPushButton("Performn Ant Diag")
+        font = self._widgetAntDiag.font()
+        font.setPointSize(12)
+        self._widgetAntDiag.setFont(font)
+        StartPollingBox.addWidget(self._widgetAntDiag)
+        self._widgetAntDiag.clicked.connect(self._PerformAntDiagHandler)
+
         self._layoutWidgets.addWidget(StartPollingGroupbox)
 
     def _SetPowerMode(self):
@@ -734,6 +741,9 @@ class MainWindow(QMainWindow):
         self._PollingsNeeded = 0
 
         self._CanWorker.StartPoll(254)
+
+    def _PerformAntDiagHandler(self):
+        self._CanWorker.performDiag()
 
     def _performAuthState(self):
         if self._widgetAuthCheckBox.isChecked():
