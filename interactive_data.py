@@ -717,7 +717,6 @@ class InteractiveData(QThread):
     def yellow_radius(self, pos):
         self._yellow_radius = pos
         self._paintCalibrationEvent()
-        print(pos)
         if self._yellowAnimation.endValue() == pos:
             start =  self._yellowAnimation.endValue()
             end =  self._yellowAnimation.startValue()

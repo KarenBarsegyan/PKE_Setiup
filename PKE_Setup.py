@@ -10,7 +10,10 @@ from PyQt5.QtGui import (
     QFont, QIntValidator
 )
 from PyQt5.QtCore import (
-    Qt, QSize, QThread
+    Qt, QSize, QThread,
+    QEasingCurve, QPropertyAnimation, 
+    QSequentialAnimationGroup, pyqtSlot, 
+    pyqtProperty
 )
 import numpy as np
 import time
@@ -332,12 +335,31 @@ class MainWindow(QMainWindow):
         StatusesBox.addWidget(self._widgetLastKeyNum)
 
         # Set was auth OK or not
+        horLayout = QHBoxLayout()
         self._widgetAuth = QLabel() 
         font = self._widgetAuth.font()
         font.setPointSize(12)
         self._widgetAuth.setFont(font)
-        self._widgetAuth.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        StatusesBox.addWidget(self._widgetAuth)
+        self._widgetAuth.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._widgetAuth.setMaximumWidth(150)
+        horLayout.addWidget(self._widgetAuth)
+        StatusesBox.addLayout(horLayout)
+        
+        self._auth_size = 0
+        authAnimation1 = QPropertyAnimation(self, b"auth_size", self)
+        # authAnimation1.setEasingCurve(QEasingCurve.OutCubic)
+        authAnimation1.setDuration(200)
+        authAnimation1.setStartValue(0)
+        authAnimation1.setEndValue(0.2)
+        authAnimation2 = QPropertyAnimation(self, b"auth_size", self)
+        # authAnimation2.setEasingCurve(QEasingCurve.InCubic)
+        authAnimation2.setDuration(200)
+        authAnimation2.setStartValue(0.2)
+        authAnimation2.setEndValue(0)
+
+        self._authAnimation = QSequentialAnimationGroup()
+        self._authAnimation.addAnimation(authAnimation1)
+        self._authAnimation.addAnimation(authAnimation2)
 
         horLayout = QHBoxLayout()
 
@@ -346,7 +368,7 @@ class MainWindow(QMainWindow):
         font.setPointSize(12)
         self._widgetAuthsDone.setFont(font)
         self._widgetAuthsDone.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        StatusesBox.addWidget(self._widgetAuthsDone)
+        # StatusesBox.addWidget(self._widgetAuthsDone)
 
         self._widgetAuthCheckBox = QCheckBox()
         font = self._widgetAuthCheckBox.font()
@@ -707,11 +729,12 @@ class MainWindow(QMainWindow):
             if authStatus:
                 self._authStatus = True
                 self._widgetAuth.setText(f'Auth: OK')
-                self._widgetAuth.setStyleSheet("color: green;")
             else:
                 self._authStatus = False
                 self._widgetAuth.setText(f'Auth: Fail')
-                self._widgetAuth.setStyleSheet("color: red;")
+
+            if self._authAnimation.state() != QPropertyAnimation.Running:
+                self._authAnimation.start()
 
     def _antImpsUpdate(self, imps: list):
         for i in range(len(imps)):
@@ -798,6 +821,7 @@ class MainWindow(QMainWindow):
             self._CanWorker.SetAuthMode(1)
         else:
             self._CanWorker.SetAuthMode(0)
+            self._authAnimation.stop()
             self._widgetAuth.setText(f'Auth: None\t')
             self._widgetAuth.setStyleSheet("color: black;")
             self._widgetAuthsDone.setText(f'Auth msg got: -')
@@ -813,6 +837,7 @@ class MainWindow(QMainWindow):
     def _PrintData(self, res: bool):
         if not res:
             self._widgetCanMsgPeriod.setText("Msg Period: 0 ms")
+            self._authAnimation.stop()
             self._widgetAuth.setText(f'Auth: None\t')
             self._widgetAuth.setStyleSheet("color: black;")
             self._widgetAuthsDone.setText(f'Auth msg got: -')
@@ -926,7 +951,24 @@ class MainWindow(QMainWindow):
                 self._worksheet_single.write_number(self._row_single+3+nKey, i*4+self._column_single+3, printData[i][nKey][2])
 
         self._row_single += 9
-     
+
+    @pyqtProperty(float)
+    def auth_size(self):
+        return self._auth_size
+
+    @auth_size.setter
+    def auth_size(self, pos):
+        self._auth_size = pos
+        if self._authStatus == True:
+            self._widgetAuth.setStyleSheet(f"color: green; \
+                                             background-color: rgba(145, 147, 191, {pos}); \
+                                             border-width: 2px; \
+                                             border-radius: 10px;")
+        else:
+            self._widgetAuth.setStyleSheet(f"color: red; \
+                                             background-color: rgba(145, 147, 191, {pos}); \
+                                             border-width: 2px; \
+                                             border-radius: 10px;")
 
 def app_start():
     app = QApplication([])
