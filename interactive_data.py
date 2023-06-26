@@ -5,10 +5,14 @@ from PyQt5.QtWidgets import (
     QMenu, QAction
 )
 from PyQt5.QtGui import (
-    QPixmap, QPainter, QPen, QColor
+    QPixmap, QPainter, QPen, QColor,
+    QPaintEvent
 )
 from PyQt5.QtCore import (
-    Qt, QThread, QPoint, QSize, QRect
+    Qt, QThread, QPoint, QSize, QRect,
+    QEasingCurve, QPropertyAnimation, 
+    QSequentialAnimationGroup, pyqtSlot, 
+    pyqtProperty
 )
 import logging
 import os
@@ -55,6 +59,13 @@ class InteractiveData(QThread):
         self._distCoeff = dict()
 
         self._store_data_path = 'store_data'
+
+        self._yellow_radius = 0
+        self._yellowAnimation = QPropertyAnimation(self, b"yellow_radius", self)
+        # self._yellowAnimation.setEasingCurve(QEasingCurve.InOutCubic)
+        self._yellowAnimation.setDuration(500)
+        self._yellowAnimation.setStartValue(5)
+        self._yellowAnimation.setEndValue(10)
 
         self._init_logger()
         self._restoreData()
@@ -512,6 +523,7 @@ class InteractiveData(QThread):
         
     def _setPoint(self, type: PointType, antNum = None, coords:tuple() = None):
         self._deletePoint(coords)
+        self._yellowAnimation.stop()
 
         if not coords:
             pos = self._lastPos
@@ -530,6 +542,7 @@ class InteractiveData(QThread):
                 self._lastYellowPos = pos
                 self._askForPollingFunc(start = True)
                 self._yellowPoints[pos] = 0
+                self._yellowAnimation.start()
 
             elif type == self.PointType.Red: 
                 self._redPoints[pos] = 0
@@ -616,7 +629,7 @@ class InteractiveData(QThread):
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         pen = QPen()
-        radius = 10
+        radius = self.yellow_radius
         pen.setWidth(1)
         pen.setColor(QColor('yellow'))
         painter.setPen(pen)
@@ -695,4 +708,20 @@ class InteractiveData(QThread):
 
 
         self._measureLabel.update()
-        
+
+    @pyqtProperty(float)
+    def yellow_radius(self):
+        return self._yellow_radius
+    
+    @yellow_radius.setter
+    def yellow_radius(self, pos):
+        self._yellow_radius = pos
+        self._paintCalibrationEvent()
+        print(pos)
+        if self._yellowAnimation.endValue() == pos:
+            start =  self._yellowAnimation.endValue()
+            end =  self._yellowAnimation.startValue()
+            self._yellowAnimation.stop()
+            self._yellowAnimation.setStartValue(start)
+            self._yellowAnimation.setEndValue(end)
+            self._yellowAnimation.start()

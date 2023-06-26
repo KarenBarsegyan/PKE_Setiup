@@ -39,6 +39,8 @@ class CanSendRecv(QThread):
     canReceivedAll = pyqtSignal(bool)
     keyNumIdReceived = pyqtSignal(int)
     keyAuthReceived = pyqtSignal(int)
+    antImpsReceived = pyqtSignal(list)
+    antDiagStateReceived = pyqtSignal(list)
 
     def __init__(self, ANT_AMOUNT, KEY_AMOUNT, parent=None):
         QThread.__init__(self, parent)
@@ -117,7 +119,6 @@ class CanSendRecv(QThread):
                         break
 
                     self._lastMsgTime = msg.timestamp
-
                     self._ParseData(msg)
 
                 isAllDone = True
@@ -128,7 +129,7 @@ class CanSendRecv(QThread):
                 
                 if isAllDone:
                     if (self._firstReceivedMsg == False):
-                        self._timeBetweenMsgs = (self._lastMsgTime - self._firstMsgTime)*1000
+                        self._timeBetweenMsgs = round((self._lastMsgTime - self._firstMsgTime)*100)*10
                     else:
                         self._timeBetweenMsgs = 0
                         self._firstReceivedMsg = False
@@ -185,10 +186,12 @@ class CanSendRecv(QThread):
             self.keyAuthReceived.emit(lastAuth)
 
         elif msg.arbitration_id == PKE_DIAG_STATE_ID:
-            diagState = int(msg.data)
+            state = self._parseDiagState(list(msg.data))
+            self.antDiagStateReceived.emit(state)
 
         elif msg.arbitration_id == PKE_ANT_IMPS_ID:
-            amtImps = int(msg.data)
+            antImps = list(msg.data[:6])
+            self.antImpsReceived.emit(antImps)
 
         elif msg.arbitration_id == PKE_ANT1_KEY_1_2_3_ID:
             self._isAllReceived[0] = True
@@ -351,7 +354,49 @@ class CanSendRecv(QThread):
             self._data[5][4][0] = int(msg.data[4])
             self._data[5][4][1] = int(msg.data[5])
             self._data[5][4][2] = int(msg.data[6])
-                
+
+    def _parseDiagState(self, state: list):
+        res = []
+        errorList = [
+            "INTERNAL_TIMEOUT_ERROR"      ,
+            "BS_EXCHANGE_ERROR"           ,
+            "BS_RESET_ERROR"              ,    
+            "BS_OPERATION_ERROR"          ,    
+            "BS_TEMP_ERROR"               ,    
+            "BS_VOLTAGE_ERROR"            ,    
+            "BS_PROTECTION_ERROR"         ,    
+            "BS_DRIVER_PROTECTION_ERROR"  ,    
+            "ANT_1_TX_SHORT_TO_GND_ERROR" ,    
+            "ANT_1_TX_SHORT_TO_BAT_ERROR" ,    
+            "ANT_1_TX_OPEN_ERROR"         ,
+            "ANT_1_TX_INTER_SHORT_ERROR"  ,
+            "ANT_2_TX_SHORT_TO_GND_ERROR" ,
+            "ANT_2_TX_SHORT_TO_BAT_ERROR" ,
+            "ANT_2_TX_OPEN_ERROR"         ,
+            "ANT_2_TX_INTER_SHORT_ERROR"  ,
+            "ANT_3_TX_SHORT_TO_GND_ERROR" ,
+            "ANT_3_TX_SHORT_TO_BAT_ERROR" ,
+            "ANT_3_TX_OPEN_ERROR"         ,
+            "ANT_3_TX_INTER_SHORT_ERROR"  ,
+            "ANT_4_TX_SHORT_TO_GND_ERROR" ,
+            "ANT_4_TX_SHORT_TO_BAT_ERROR" ,
+            "ANT_4_TX_OPEN_ERROR"         ,
+            "ANT_4_TX_INTER_SHORT_ERROR"  ,
+            "ANT_5_TX_SHORT_TO_GND_ERROR" ,
+            "ANT_5_TX_SHORT_TO_BAT_ERROR" ,
+            "ANT_5_TX_OPEN_ERROR"         ,
+            "ANT_5_TX_INTER_SHORT_ERROR"  ,
+            "ANT_6_TX_SHORT_TO_GND_ERROR" ,
+            "ANT_6_TX_SHORT_TO_BAT_ERROR" ,
+            "ANT_6_TX_OPEN_ERROR"         ,
+            "ANT_6_TX_INTER_SHORT_ERROR"  
+        ]
+        for i in range(len(errorList)):
+            if (state[int(i/8)] & (1 << (i - 8*int(i/8)))):
+                res.append(errorList[i])
+
+        return res
+
     def _BusInitQuick(self):
         try:
             self._bus = can.Bus(interface='systec', channel='0', bitrate=500000)
@@ -401,7 +446,6 @@ class CanSendRecv(QThread):
             self._logger.warning(f"BusDeInit error: {exc}")
 
     def MainTask(self):
-
         if self._Counter > 10:
             self._Counter = 0
             self._CanSend()

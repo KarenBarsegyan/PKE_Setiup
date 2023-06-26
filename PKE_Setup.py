@@ -3,7 +3,8 @@ from PyQt5.QtWidgets import (
     QApplication, QLabel, QHBoxLayout, 
     QWidget, QPushButton, QLineEdit, 
     QGroupBox, QSpacerItem, QSlider,
-    QFrame, QTabWidget, QScrollArea
+    QFrame, QTabWidget, QScrollArea,
+    QComboBox
 )
 from PyQt5.QtGui import (
     QFont, QIntValidator
@@ -144,6 +145,7 @@ class MainWindow(QMainWindow):
         self._SetCAN()
         self._SetStatuses()
         self._SetStartPolling()
+        self._SetStartDiag()
         self._SetPowerMode()
         self._SetLogs()
         self._SetAntCheckBox()
@@ -361,7 +363,7 @@ class MainWindow(QMainWindow):
         self._layoutWidgets.addWidget(StatusGroupbox)
 
     def _SetStartPolling(self):
-        StartPollingGroupbox = QGroupBox("Start Polling")
+        StartPollingGroupbox = QGroupBox("Polling State")
         font = StartPollingGroupbox.font()
         font.setPointSize(10)
         StartPollingGroupbox.setFont(font)
@@ -407,14 +409,50 @@ class MainWindow(QMainWindow):
         StartPollingBox.addWidget(self._widgetStartRepeatPolling)
         self._widgetStartRepeatPolling.clicked.connect(self._StartRepeatPollingHandler)
 
-        self._widgetAntDiag = QPushButton("Performn Ant Diag")
+        self._layoutWidgets.addWidget(StartPollingGroupbox)
+
+    def _SetStartDiag(self):
+        StartDiagGroupbox = QGroupBox("Ant impedances")
+        font = StartDiagGroupbox.font()
+        font.setPointSize(10)
+        StartDiagGroupbox.setFont(font)
+        StartDiagBox = QVBoxLayout()
+        StartDiagBox.setSpacing(15)
+        StartDiagGroupbox.setLayout(StartDiagBox)
+
+        self._widgetAntImps = []
+
+        inRow = 3
+        for nAnt in range(0, int(self._AntAmount/inRow+1)):
+            h = QHBoxLayout()
+            added = False
+            for nCnt in range(inRow):
+                idx = nAnt*inRow + nCnt
+                if(idx < self._AntAmount):
+                    self._widgetAntImps.append(QLabel())
+                    font = self._widgetAntImps[idx].font()
+                    font.setPointSize(11)
+                    self._widgetAntImps[idx].setFont(font)
+                    h.addWidget(self._widgetAntImps[idx])
+                    # h.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    added = True
+            if added:
+                StartDiagBox.addLayout(h)
+                added = False
+        
+        self._antImpsUpdate([0,0,0,0,0,0])
+
+        self._widgetDiagStatuses = QComboBox()
+        StartDiagBox.addWidget(self._widgetDiagStatuses)
+
+        self._widgetAntDiag = QPushButton("Get ants impedance and calibrate")
         font = self._widgetAntDiag.font()
         font.setPointSize(12)
         self._widgetAntDiag.setFont(font)
-        StartPollingBox.addWidget(self._widgetAntDiag)
+        StartDiagBox.addWidget(self._widgetAntDiag)
         self._widgetAntDiag.clicked.connect(self._PerformAntDiagHandler)
 
-        self._layoutWidgets.addWidget(StartPollingGroupbox)
+        self._layoutWidgets.addWidget(StartDiagGroupbox)
 
     def _SetPowerMode(self):
         PowerModeGroupbox = QGroupBox("Power Mode")
@@ -585,6 +623,8 @@ class MainWindow(QMainWindow):
         self._CanWorker.keyNumIdReceived.connect(self._LastKeyIdUpdate)
         self._CanWorker.keyAuthReceived.connect(self._LastAuthUpdate)
         self._CanWorker.canReceivedAll.connect(self._PrintData)
+        self._CanWorker.antImpsReceived.connect(self._antImpsUpdate)
+        self._CanWorker.antDiagStateReceived.connect(self._antDiagUpdate)
         
         self._CanThread.start()
 
@@ -672,6 +712,14 @@ class MainWindow(QMainWindow):
                 self._authStatus = False
                 self._widgetAuth.setText(f'Auth: Fail')
                 self._widgetAuth.setStyleSheet("color: red;")
+
+    def _antImpsUpdate(self, imps: list):
+        for i in range(len(imps)):
+            self._widgetAntImps[i].setText(f'Ant {i+1}: {imps[i]} Ω')
+
+    def _antDiagUpdate(self, statuses: list):
+        self._widgetDiagStatuses.clear()
+        self._widgetDiagStatuses.addItems(statuses)                            
 
     def _currentChangedHandler(self):
         val = self._widgetCurrSlider.value()
