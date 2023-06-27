@@ -4,10 +4,10 @@ from PyQt5.QtWidgets import (
     QWidget, QPushButton, QLineEdit, 
     QGroupBox, QSpacerItem, QSlider,
     QFrame, QTabWidget, QScrollArea,
-    QComboBox
+    QComboBox, QMenu, QAction, QFileDialog
 )
 from PyQt5.QtGui import (
-    QFont, QIntValidator
+    QFont, QIntValidator, QIcon,
 )
 from PyQt5.QtCore import (
     Qt, QSize, QThread,
@@ -22,7 +22,7 @@ import logging
 from CAN import CanSendRecv
 from interactive_data import InteractiveData
 import os
-import yaml
+import json
 from functools import partial
 
 
@@ -33,7 +33,8 @@ class MainWindow(QMainWindow):
         self._PowerMode = 0
         self._AntAmount = 6
         self._KeyAmount = 5
-        self._store_data_path = "store_data"
+        self._store_save_file_path = "store_data/last_opened"
+        self._store_data_path_value = ""
         self._logs_path = "app_logs"
         self._PollingsDone = 0
         self._authStatus = False
@@ -46,7 +47,22 @@ class MainWindow(QMainWindow):
         self._Initworksheet()
         self._SetApp()
         self._CanInit()
-        self._restoreData()
+
+        try:
+            with open(f'{self._store_save_file_path}', 'r') as f:
+                to_json = json.load(f)
+
+            self._store_data_path_value = to_json
+        except:
+            self._logger.info("no such file yet")
+
+        fileName = self._store_data_path_value
+        if fileName != "":
+            self._store_data_path = fileName
+
+            fileName = fileName[fileName.rfind('/')+1:]
+            self.setWindowTitle(f"PKE Setup - {fileName[:-len('.pkesetup')]}")
+            self._restoreData()
 
     def closeEvent(self, *args, **kwargs):
         self._StopPolling()
@@ -66,26 +82,10 @@ class MainWindow(QMainWindow):
         except:
             self._logger.info("Error terminating CAN thread")
 
-        to_yaml = {
-            'ants': [],
-            'keys': [],
-            'auth': 0
-        }
-        for nCnt in range(0, len(self._widgetAntCheckBox)):
-            if self._widgetAntCheckBox[nCnt].isChecked():
-                to_yaml['ants'].append(nCnt)
-
-        for nCnt in range(0, len(self._widgetKeyCheckBox)):
-            if self._widgetKeyCheckBox[nCnt].isChecked():
-                to_yaml['keys'].append(nCnt)
-
-        if self._widgetAuthCheckBox.isChecked(): 
-            to_yaml['auth'] = 1
-
-        to_yaml['current'] = self._widgetCurrSlider.value()
-           
-        with open(f'{self._store_data_path}/keys_ants', 'w') as f:
-            yaml.dump(to_yaml, f)
+        self._saveFile()
+        to_json = self._store_data_path_value
+        with open(f'{self._store_save_file_path}', 'w') as f:
+            json.dump(to_json, f)
 
         super(QMainWindow, self).closeEvent(*args, **kwargs)
 
@@ -148,6 +148,8 @@ class MainWindow(QMainWindow):
         self._layoutBig.addLayout(self._layoutAnts)
         self._layoutBig.addLayout(layoutWidgetsSpacer)
 
+        self._createMenuBar()
+
         self._SetDataTabs()
         self._SetCAN()
         self._SetStatuses()
@@ -166,6 +168,177 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(widget)
 
         self.show()
+
+    def _createMenuBar(self):
+        # File
+        newAction = QAction("&New", self)
+        newAction.triggered.connect(self._newFile)
+
+        openAction = QAction("&Open...", self)
+        openAction.setShortcut("Ctrl+O")
+        openAction.triggered.connect(self._openFile)
+
+        saveAction = QAction("&Save", self)
+        saveAction.setShortcut("Ctrl+S")
+        saveAction.triggered.connect(self._saveFile)
+
+        saveAsAction = QAction("&Save As...", self)
+        saveAsAction.triggered.connect(self._saveFileAs)
+
+        exitAction = QAction("&Exit", self)
+        aboutAction = QAction("&About", self)       
+
+        # Logging
+        newLogAction = QAction("&New", self)
+        # newLogAction.triggered.connect(self._newFile)
+
+        openLogAction = QAction("&Open...", self)
+        # openLogAction.triggered.connect(self._openFile)
+
+        saveLogAction = QAction("&Save", self)
+        # saveLogAction.triggered.connect(self._saveFile)
+
+        saveAsLogAction = QAction("&Save As...", self)
+
+        menuBar = self.menuBar()
+        # File menu
+        fileMenu = QMenu("&File", self)
+        menuBar.addMenu(fileMenu)
+        fileMenu.addAction(newAction)
+        fileMenu.addAction(openAction)
+        fileMenu.addAction(saveAction)
+        fileMenu.addAction(saveAsAction)
+        fileMenu.addSeparator()
+        fileMenu.addAction(exitAction)
+        # Logs Menu 
+        loggingMenu = QMenu("&Logging", self)
+        menuBar.addMenu(loggingMenu)
+        loggingMenu.addAction(newLogAction)
+        loggingMenu.addAction(openLogAction)
+        loggingMenu.addAction(saveLogAction)
+        loggingMenu.addAction(saveAsLogAction)
+        # Help menu
+        helpMenu = menuBar.addMenu("&Help")
+        helpMenu.addAction(aboutAction)
+
+    def _newFile(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        fileName, _ = QFileDialog.getSaveFileName(self,"Create New File","","Pke Setup (*.pkesetup);;All Files (*)", options=options)
+        if fileName != '':
+            if fileName.find('.pkesetup') != len(fileName) - len('.pkesetup'):
+                fileName += '.pkesetup'
+            
+            self._store_data_path = fileName
+            self._saveFile()
+
+            fileName = fileName[fileName.rfind('/')+1:]
+            self.setWindowTitle(f"PKE Setup - {fileName[:-len('.pkesetup')]}")
+    
+    def _openFile(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        fileName, _ = QFileDialog.getOpenFileName(self,"Open File", "","Pke Setup (*.pkesetup);;All Files (*)", options=options)
+
+        if fileName != "":
+            self._store_data_path = fileName
+            self._restoreData()
+
+            fileName = fileName[fileName.rfind('/')+1:]
+            self.setWindowTitle(f"PKE Setup - {fileName[:-len('.pkesetup')]}")
+
+    def _restoreData(self):
+        try:
+            with open(f'{self._store_data_path}') as f:
+                allAntsData = json.load(f)
+
+            keysAntsData = allAntsData['key_ants']
+            for nCnt in range(0, len(self._widgetAntCheckBox)):
+                if nCnt not in keysAntsData['ants']:
+                    self._widgetAntCheckBox[nCnt].setChecked(False)
+                else:
+                    self._widgetAntCheckBox[nCnt].setChecked(True)
+
+            for nCnt in range(0, len(self._widgetKeyCheckBox)):
+                if nCnt not in keysAntsData['keys']:
+                    self._widgetKeyCheckBox[nCnt].setChecked(False)
+                else:
+                    self._widgetKeyCheckBox[nCnt].setChecked(True)
+
+            if keysAntsData['auth'] == 0:
+                self._widgetAuthCheckBox.setChecked(False)
+            else:
+                self._widgetAuthCheckBox.setChecked(True)
+
+            val = keysAntsData['current']
+            self._widgetCurrSlider.setValue(val)
+            self._widAntCurrValue.setText('Current: %.2f mA' % (15.625*(val)))
+            self._CanWorker.setCurrent(val)
+
+        except:
+            self.setWindowTitle(f"PKE Setup - File Was deleted or moved")
+            self._store_data_path_value = ""
+            self._logger.info("No such file in restore")
+
+    def _saveFile(self):
+        if self._store_data_path == "":
+            self._saveFileAs()
+            return
+
+        to_json = {
+            'ants': [],
+            'keys': [],
+            'auth': 0
+        }
+        for nCnt in range(0, len(self._widgetAntCheckBox)):
+            if self._widgetAntCheckBox[nCnt].isChecked():
+                to_json['ants'].append(nCnt)
+
+        for nCnt in range(0, len(self._widgetKeyCheckBox)):
+            if self._widgetKeyCheckBox[nCnt].isChecked():
+                to_json['keys'].append(nCnt)
+
+        if self._widgetAuthCheckBox.isChecked(): 
+            to_json['auth'] = 1
+
+        to_json['current'] = self._widgetCurrSlider.value()
+
+        to_json_main = {}
+        try:
+            with open(f'{self._store_data_path}', 'r') as f:
+                to_json_main = json.load(f)
+        except:
+            self._logger.info("no such file yet")
+
+        to_json_main['key_ants'] = to_json
+
+        with open(f'{self._store_data_path}', 'w') as f:
+            json.dump(to_json_main, f)
+
+        self._interactiveData.saveData(self._store_data_path)
+
+    def _saveFileAs(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        fileName, _ = QFileDialog.getSaveFileName(self,"Save As...","","Pke Setup (*.pkesetup);;All Files (*)", options=options)
+        if fileName != '':
+            if fileName.find('.pkesetup') != len(fileName) - len('.pkesetup'):
+                fileName += '.pkesetup'
+            
+            self._store_data_path = fileName
+            self._saveFile()
+
+            fileName = fileName[fileName.rfind('/')+1:]
+            self.setWindowTitle(f"PKE Setup - {fileName[:-len('.pkesetup')]}")
+
+    @property
+    def _store_data_path(self):
+        return self._store_data_path_value
+
+    @_store_data_path.setter
+    def _store_data_path(self, path):
+        self._store_data_path_value = path
+        self._interactiveData.restoreData(path)
 
     def _SetDataTabs(self):
         self._tabs = QTabWidget()
@@ -652,39 +825,6 @@ class MainWindow(QMainWindow):
         self._CanWorker.antDiagStateReceived.connect(self._antDiagUpdate)
         
         self._CanThread.start()
-
-    def _restoreData(self):
-        try:
-            os.mkdir(f"{self._store_data_path}/")
-        except: pass
-
-        try:
-            keysAntsData = yaml.load(open(f'{self._store_data_path}/keys_ants'), yaml.SafeLoader)
-            for nCnt in range(0, len(self._widgetAntCheckBox)):
-                if nCnt not in keysAntsData['ants']:
-                    self._widgetAntCheckBox[nCnt].setChecked(False)
-
-            for nCnt in range(0, len(self._widgetKeyCheckBox)):
-                if nCnt not in keysAntsData['keys']:
-                    self._widgetKeyCheckBox[nCnt].setChecked(False)
-
-            if keysAntsData['auth'] == 0:
-                self._widgetAuthCheckBox.setChecked(False)
-
-            val = keysAntsData['current']
-            self._widgetCurrSlider.setValue(val)
-            self._widAntCurrValue.setText('Current: %.2f mA' % (15.625*(val)))
-            self._CanWorker.setCurrent(val)
-
-        except:
-            self._logger.info("Create new \"keys_ants\" file")
-            to_yaml = {
-                'ants': [0, 1, 2, 3, 4, 5],
-                'keys': [0, 1, 2, 3, 4],
-                'auth': 1
-            }
-            with open(f'{self._store_data_path}/keys_ants', 'w') as f:
-                yaml.dump(to_yaml, f)
 
     def _BusInitHandler(self):
         self._widgetUsbConnect.setFlat(True)

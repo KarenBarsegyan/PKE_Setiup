@@ -57,8 +57,7 @@ class InteractiveData(QThread):
         self._picWidth = 0
         self._picHeight = 0
         self._distCoeff = dict()
-
-        self._store_data_path = 'store_data'
+        self._store_data_path = ''
 
         self._yellow_radius = 0
         self._yellowAnimation = QPropertyAnimation(self, b"yellow_radius", self)
@@ -68,7 +67,6 @@ class InteractiveData(QThread):
         self._yellowAnimation.setEndValue(10)
 
         self._init_logger()
-        self._restoreData()
         self.Calibrate()
 
     def __del__(self):
@@ -87,15 +85,13 @@ class InteractiveData(QThread):
         self._logger.addHandler(f_handler)
         self._logger.setLevel(logging.WARNING)
 
-    def _restoreData(self):
+    def restoreData(self, path):
         try:
-            os.mkdir(f"{self._store_data_path}/")
-        except: pass
+            with open(f'{path}') as f:
+                allData = json.load(f)
 
-        try:
-            with open(f'{self._store_data_path}/points') as f:
-                pointsData = json.load(f)
-
+            pointsData = allData['points']
+            self._greenPoints.clear()
             for point in pointsData['pointsGreen']: 
                 numpyArray = np.asarray(pointsData['pointsGreen'][point])
                 self._greenPoints[tuple(json.loads(point))] = numpyArray
@@ -106,14 +102,18 @@ class InteractiveData(QThread):
             # for point in pointsData['pointsRed']: 
             #     self._redPoints[tuple(json.loads(point))] = 0
 
+            self._antPoints.clear()
             for point in pointsData['pointsAnt']: 
                 antNum = pointsData['pointsAnt'][point]
                 self._antPoints[tuple(json.loads(point))] = antNum
 
+            self._paintCalibrationEvent()
+            self._paintMeasureEvent()
+
         except:
             self._logger.info("No points data yet")
 
-    def _saveData(self):
+    def saveData(self, path):
         data = dict()
 
         d = dict()
@@ -121,23 +121,22 @@ class InteractiveData(QThread):
             d[json.dumps(point)] = self._greenPoints[point]
         data['pointsGreen'] = d
 
-        # d = dict()
-        # for point in self._yellowPoints:  
-        #     d[json.dumps(point)] = self._yellowPoints[point]
-        # data['pointsYellow'] = d
-
-        # d = dict()
-        # for point in self._redPoints:  
-        #     d[json.dumps(point)] = self._redPoints[point]
-        # data['pointsRed'] = d
-
         d = dict()
         for point in self._antPoints:  
             d[json.dumps(point)] = self._antPoints[point]
         data['pointsAnt'] = d
         
-        with open(f'{self._store_data_path}/points', 'w') as f:
-            json.dump(data, f, cls=NumpyArrayEncoder)
+        to_json = {}
+        try:
+            with open(f'{path}', 'r') as f:
+                to_json = json.load(f)
+        except:
+            self._logger.info("no such file yet")
+
+        to_json['points'] = data
+
+        with open(f'{path}', 'w') as f:
+            json.dump(to_json, f, cls=NumpyArrayEncoder)
 
     def RememberData(self, Data, isDone):
         self._data = Data
@@ -236,10 +235,11 @@ class InteractiveData(QThread):
                             sumRSSI += (self._greenPoints[gPos][nAnt][nKey][i])**2
 
                         sumRSSI = int(round(sumRSSI ** 0.5))
-                        dist = ((gPos[0] - antPos[0])**2 + (gPos[1] - antPos[1])**2)**0.5
 
-                        coeff += sumRSSI*dist*dist
-                        amountOfCalcs += 1
+                        if sumRSSI > 0:
+                            dist = ((gPos[0] - antPos[0])**2 + (gPos[1] - antPos[1])**2)**0.5
+                            coeff += sumRSSI*dist*dist
+                            amountOfCalcs += 1
 
                     # print(f"ANT: {nAnt} \t RSSI: {sumRSSI} \t Dist: {int(dist)} \t Coeff: {int(sumRSSI*dist*dist)}")
                     # print(f"Ant: {nAnt}\nnKey: {nKey}\nDist: {dist}\nRSSI: {sumRSSI}")
@@ -517,7 +517,6 @@ class InteractiveData(QThread):
 
         self._paintCalibrationEvent()
         self._paintMeasureEvent()
-        self._saveData()
 
         return type
         
@@ -552,7 +551,6 @@ class InteractiveData(QThread):
 
             self._paintCalibrationEvent()
             self._paintMeasureEvent()
-            self._saveData()
 
     def _whichPointPlaced(self) -> PointType:
         if self._lastPos in self._greenPoints.keys():
