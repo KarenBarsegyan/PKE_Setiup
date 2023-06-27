@@ -631,7 +631,7 @@ class InteractiveData(QThread):
         pen = QPen()
         radius = self.yellow_radius
         pen.setWidth(1)
-        pen.setColor(QColor('yellow'))
+        pen.setColor(QColor('black'))
         painter.setPen(pen)
         painter.setBrush(QColor('yellow'))
         for point in self._yellowPoints:

@@ -13,7 +13,7 @@ from PyQt5.QtCore import (
     Qt, QSize, QThread,
     QEasingCurve, QPropertyAnimation, 
     QSequentialAnimationGroup, pyqtSlot, 
-    pyqtProperty
+    pyqtProperty, QTimer
 )
 import numpy as np
 import time
@@ -23,6 +23,7 @@ from CAN import CanSendRecv
 from interactive_data import InteractiveData
 import os
 import yaml
+from functools import partial
 
 
 class MainWindow(QMainWindow):
@@ -35,10 +36,11 @@ class MainWindow(QMainWindow):
         self._store_data_path = "store_data"
         self._logs_path = "app_logs"
         self._PollingsDone = 0
-        self._AuthsDone = 0
         self._authStatus = False
         self._pollingInProgress = False
         self._PollingsNeeded = 1
+        self._backgroundColors = [145, 147, 191]
+        self._runningAnimations = dict()
 
         self._InitLogger()
         self._Initworksheet()
@@ -79,6 +81,8 @@ class MainWindow(QMainWindow):
 
         if self._widgetAuthCheckBox.isChecked(): 
             to_yaml['auth'] = 1
+
+        to_yaml['current'] = self._widgetCurrSlider.value()
            
         with open(f'{self._store_data_path}/keys_ants', 'w') as f:
             yaml.dump(to_yaml, f)
@@ -327,12 +331,19 @@ class MainWindow(QMainWindow):
         StatusGroupbox.setLayout(StatusesBox)
     
         # Set last key with pressed button num
+        horLayout = QHBoxLayout()
         self._widgetLastKeyNum = QLabel()
         font = self._widgetLastKeyNum.font()
         font.setPointSize(12)
         self._widgetLastKeyNum.setFont(font)
         self._widgetLastKeyNum.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        StatusesBox.addWidget(self._widgetLastKeyNum)
+        self._widgetLastKeyNum.setMaximumWidth(280)
+        horLayout.addWidget(self._widgetLastKeyNum)
+        StatusesBox.addLayout(horLayout)
+
+        self._last_key_background = 0
+        self._lastKeyAnimation = QSequentialAnimationGroup()
+        self._SetBackgroundAnimation(self._lastKeyAnimation, b"last_key_background")
 
         # Set was auth OK or not
         horLayout = QHBoxLayout()
@@ -345,30 +356,11 @@ class MainWindow(QMainWindow):
         horLayout.addWidget(self._widgetAuth)
         StatusesBox.addLayout(horLayout)
         
-        self._auth_size = 0
-        authAnimation1 = QPropertyAnimation(self, b"auth_size", self)
-        # authAnimation1.setEasingCurve(QEasingCurve.OutCubic)
-        authAnimation1.setDuration(200)
-        authAnimation1.setStartValue(0)
-        authAnimation1.setEndValue(0.2)
-        authAnimation2 = QPropertyAnimation(self, b"auth_size", self)
-        # authAnimation2.setEasingCurve(QEasingCurve.InCubic)
-        authAnimation2.setDuration(200)
-        authAnimation2.setStartValue(0.2)
-        authAnimation2.setEndValue(0)
-
+        self._auth_background = 0
         self._authAnimation = QSequentialAnimationGroup()
-        self._authAnimation.addAnimation(authAnimation1)
-        self._authAnimation.addAnimation(authAnimation2)
+        self._SetBackgroundAnimation(self._authAnimation, b"auth_background")
 
         horLayout = QHBoxLayout()
-
-        self._widgetAuthsDone = QLabel()
-        font = self._widgetAuthsDone.font()
-        font.setPointSize(12)
-        self._widgetAuthsDone.setFont(font)
-        self._widgetAuthsDone.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        # StatusesBox.addWidget(self._widgetAuthsDone)
 
         self._widgetAuthCheckBox = QCheckBox()
         font = self._widgetAuthCheckBox.font()
@@ -410,12 +402,19 @@ class MainWindow(QMainWindow):
         self._widgetPollingAmount.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         StartPollingBox.addWidget(self._widgetPollingAmount)
 
+        horLayout = QHBoxLayout()
         self._widgetPollingsDone = QLabel()
         font = self._widgetPollingsDone.font()
         font.setPointSize(12)
         self._widgetPollingsDone.setFont(font)
         self._widgetPollingsDone.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        StartPollingBox.addWidget(self._widgetPollingsDone)
+        self._widgetPollingsDone.setMaximumWidth(250)
+        horLayout.addWidget(self._widgetPollingsDone)
+        StartPollingBox.addLayout(horLayout)
+
+        self._pollings_done_background = 0
+        self._pollingsDoneAnimation = QSequentialAnimationGroup()
+        self._SetBackgroundAnimation(self._pollingsDoneAnimation, b"pollings_done_background")
 
         self._widgetStartPolling = QPushButton("Start Polling")
         font = self._widgetStartPolling.font()
@@ -461,7 +460,11 @@ class MainWindow(QMainWindow):
             if added:
                 StartDiagBox.addLayout(h)
                 added = False
-        
+
+        self._ant_imps_background = 0
+        self._antImpsAnimation = QSequentialAnimationGroup()
+        self._SetBackgroundAnimation(self._antImpsAnimation, b"ant_imps_background")
+
         self._antImpsUpdate([0,0,0,0,0,0])
 
         self._widgetDiagStatuses = QComboBox()
@@ -668,6 +671,11 @@ class MainWindow(QMainWindow):
             if keysAntsData['auth'] == 0:
                 self._widgetAuthCheckBox.setChecked(False)
 
+            val = keysAntsData['current']
+            self._widgetCurrSlider.setValue(val)
+            self._widAntCurrValue.setText('Current: %.2f mA' % (15.625*(val)))
+            self._CanWorker.setCurrent(val)
+
         except:
             self._logger.info("Create new \"keys_ants\" file")
             to_yaml = {
@@ -717,15 +725,10 @@ class MainWindow(QMainWindow):
 
     def _LastKeyIdUpdate(self, lastPressedKey):
         self._widgetLastKeyNum.setText(f"Last Key Pressed Num: {lastPressedKey}\t\t")
+        self._animationStart(self._lastKeyAnimation)
 
     def _LastAuthUpdate(self, authStatus):
         if self._widgetAuthCheckBox.isChecked() and self._pollingInProgress:
-            self._AuthsDone += 1
-            if self._AuthsDone > 250:
-                self._AuthsDone = 1
-
-            self._widgetAuthsDone.setText(f'Auth msg got: {self._AuthsDone}')
-
             if authStatus:
                 self._authStatus = True
                 self._widgetAuth.setText(f'Auth: OK')
@@ -734,9 +737,10 @@ class MainWindow(QMainWindow):
                 self._widgetAuth.setText(f'Auth: Fail')
 
             if self._authAnimation.state() != QPropertyAnimation.Running:
-                self._authAnimation.start()
+                self._animationStart(self._authAnimation)
 
     def _antImpsUpdate(self, imps: list):
+        self._animationStart(self._antImpsAnimation)
         for i in range(len(imps)):
             self._widgetAntImps[i].setText(f'Ant {i+1}: {imps[i]} Ω')
 
@@ -778,7 +782,7 @@ class MainWindow(QMainWindow):
         self._widgetStartPolling.setText("Stop Polling")
         self._widgetStartRepeatPolling.setText("Start Repeat Polling")
         self._PollingsDone = 0
-        self._AuthsDone = 0
+        self._animationStop(self._pollingsDoneAnimation)
         self._widgetPollingsDone.setText(f"Target: {self._PollingsNeeded}; Done: {self._PollingsDone}")
         self._widgetPollingsDone.setStyleSheet("color: black;")
 
@@ -789,10 +793,9 @@ class MainWindow(QMainWindow):
         self._widgetStartPolling.setText("Start Polling")
         self._widgetStartRepeatPolling.setText("Start Repeat Polling")
         self._PollingsDone = 0
+        self._animationStop(self._pollingsDoneAnimation)
         self._widgetPollingsDone.setText(f"Target: - ; Done: -")
         self._widgetPollingsDone.setStyleSheet("color: black;")
-        self._widgetAuthsDone.setText(f'Auth msg got: -')
-        self._AuthsDone = 0
         self._PollingsNeeded = 0
 
         self._CanWorker.StartPoll(255)
@@ -806,8 +809,8 @@ class MainWindow(QMainWindow):
         self._widgetStartPolling.setText("Start Polling")
         self._widgetStartRepeatPolling.setText("Stop Repeat Polling")
         self._PollingsDone = 0
-        self._AuthsDone = 0
-        self._widgetPollingsDone.setText(f"Target: ∞ ; Done: {self._PollingsDone}")
+        self._animationStop(self._pollingsDoneAnimation)
+        self._widgetPollingsDone.setText(f"Target: ∞ ; Done: - ")
         self._widgetPollingsDone.setStyleSheet("color: black;")
         self._PollingsNeeded = 0
 
@@ -821,11 +824,9 @@ class MainWindow(QMainWindow):
             self._CanWorker.SetAuthMode(1)
         else:
             self._CanWorker.SetAuthMode(0)
-            self._authAnimation.stop()
+            self._animationStop(self._authAnimation)
             self._widgetAuth.setText(f'Auth: None\t')
             self._widgetAuth.setStyleSheet("color: black;")
-            self._widgetAuthsDone.setText(f'Auth msg got: -')
-            self._AuthsDone = 0
 
     def _AskStartStopPolling(self, start: bool = False):
         if(self._widgetStartPolling.text() == "Stop Polling"):
@@ -837,12 +838,12 @@ class MainWindow(QMainWindow):
     def _PrintData(self, res: bool):
         if not res:
             self._widgetCanMsgPeriod.setText("Msg Period: 0 ms")
-            self._authAnimation.stop()
+            self._animationStop(self._authAnimation)
             self._widgetAuth.setText(f'Auth: None\t')
             self._widgetAuth.setStyleSheet("color: black;")
-            self._widgetAuthsDone.setText(f'Auth msg got: -')
             self._widgetLastKeyNum.setText(f"Last Key Pressed Num: None\t")
             Data = np.zeros((((self._AntAmount, self._KeyAmount, 3))), dtype=int)
+            self._animationStop(self._pollingsDoneAnimation)
             self._widgetPollingsDone.setText(f"Target: - ; Done: -")
             self._PollingsDone = 0
 
@@ -850,24 +851,25 @@ class MainWindow(QMainWindow):
             Data = self._CanWorker.Data
             self._widgetCanMsgPeriod.setText(f"Msg Period: {int(self._CanWorker.TimeBetweenMsgs)} ms")
 
+            self._animationStart(self._pollingsDoneAnimation)
             isPollDone = False
             if (self._PollingsNeeded != 0 and self._pollingInProgress):
                 self._PollingsDone += 1
                 self._widgetPollingsDone.setText(f"Target: {self._PollingsNeeded}; Done: {self._PollingsDone}")
         
                 if (self._PollingsDone == self._PollingsNeeded):
+                    self._animationStop(self._pollingsDoneAnimation)
                     self._widgetPollingsDone.setStyleSheet("color: green;")
                     isPollDone = True
                     self._widgetStartPolling.setText("Start Polling")
-                else:
-                    self._widgetPollingsDone.setStyleSheet("color: black;")
+
 
             elif (self._pollingInProgress):
                 self._PollingsDone += 1
                 if self._PollingsDone > 250:
                     self._PollingsDone = 1
                     
-                self._widgetPollingsDone.setText(f"Target: ∞ ; Done: {self._PollingsDone}")
+                self._widgetPollingsDone.setText(f"Target: ∞ ; Done: - ")
 
             self._interactiveData.RememberData(Data, isPollDone)
             self._PrintLogData()
@@ -952,23 +954,93 @@ class MainWindow(QMainWindow):
 
         self._row_single += 9
 
-    @pyqtProperty(float)
-    def auth_size(self):
-        return self._auth_size
+    def _SetBackgroundAnimation(self, anim, func_name):
+        authAnimation1 = QPropertyAnimation(self, func_name, self)
+        # authAnimation1.setEasingCurve(QEasingCurve.OutCubic)
+        authAnimation1.setDuration(200)
+        authAnimation1.setStartValue(0)
+        authAnimation1.setEndValue(0.2)
+        authAnimation2 = QPropertyAnimation(self, func_name, self)
+        # authAnimation2.setEasingCurve(QEasingCurve.InCubic)
+        authAnimation2.setDuration(200)
+        authAnimation2.setStartValue(0.2)
+        authAnimation2.setEndValue(0)
 
-    @auth_size.setter
-    def auth_size(self, pos):
-        self._auth_size = pos
+        anim.addAnimation(authAnimation1)
+        anim.addAnimation(authAnimation2)
+
+    def _animationStart(self, animation):
+        animation.start()
+        
+    def _animationStop(self, animation):
+        animation.stop()
+
+    @pyqtProperty(float)
+    def auth_background(self):
+        return self._auth_background
+
+    @auth_background.setter
+    def auth_background(self, pos):
+        self._auth_background = pos
+
+        color = ''
         if self._authStatus == True:
-            self._widgetAuth.setStyleSheet(f"color: green; \
-                                             background-color: rgba(145, 147, 191, {pos}); \
-                                             border-width: 2px; \
-                                             border-radius: 10px;")
+            color = 'green'
         else:
-            self._widgetAuth.setStyleSheet(f"color: red; \
-                                             background-color: rgba(145, 147, 191, {pos}); \
-                                             border-width: 2px; \
-                                             border-radius: 10px;")
+            color = 'red'
+
+        self._widgetAuth.setStyleSheet(f"color: {color}; \
+                                         background-color: rgba({self._backgroundColors[0]}, \
+                                                                {self._backgroundColors[1]}, \
+                                                                {self._backgroundColors[2]}, \
+                                                                {pos}); \
+                                         border-width: 2px; \
+                                         border-radius: 10px;")
+            
+    @pyqtProperty(float)
+    def pollings_done_background(self):
+        return self._pollings_done_background
+
+    @pollings_done_background.setter
+    def pollings_done_background(self, pos):
+        self._pollings_done_background = pos
+        self._widgetPollingsDone.setStyleSheet(f"background-color: rgba({self._backgroundColors[0]}, \
+                                                                        {self._backgroundColors[1]}, \
+                                                                        {self._backgroundColors[2]}, \
+                                                                        {pos}); \
+                                                 border-width: 2px; \
+                                                 border-radius: 10px;")
+
+    @pyqtProperty(float)
+    def last_key_background(self):
+        return self._last_key_background
+
+    @last_key_background.setter
+    def last_key_background(self, pos):
+        self._last_key_background = pos
+        self._widgetLastKeyNum.setStyleSheet(f"background-color: rgba({self._backgroundColors[0]}, \
+                                                                      {self._backgroundColors[1]}, \
+                                                                      {self._backgroundColors[2]}, \
+                                                                      {pos}); \
+                                               border-width: 2px; \
+                                               border-radius: 10px;")
+
+    @pyqtProperty(float)
+    def ant_imps_background(self):
+        return self._ant_imps_background
+
+    @ant_imps_background.setter
+    def ant_imps_background(self, pos):
+        self._ant_imps_background = pos
+        for i in range(len(self._widgetAntImps)):
+            self._widgetAntImps[i].setStyleSheet(f"background-color: rgba({self._backgroundColors[0]}, \
+                                                                          {self._backgroundColors[1]}, \
+                                                                          {self._backgroundColors[2]}, \
+                                                                          {pos}); \
+                                                   border-width: 2px; \
+                                                   border-radius: 10px;")
+
+
 
 def app_start():
     app = QApplication([])

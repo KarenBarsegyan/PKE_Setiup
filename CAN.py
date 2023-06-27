@@ -94,7 +94,6 @@ class CanSendRecv(QThread):
                 )
                 self._amountOfPollings = 0
                 self._PerformDiag = 0
-                self._Current = 0
 
                 try:
                     self._bus.send(msg_to_send)
@@ -446,7 +445,7 @@ class CanSendRecv(QThread):
             self._logger.warning(f"BusDeInit error: {exc}")
 
     def MainTask(self):
-        if self._Counter > 10:
+        if self._Counter > 5:
             self._Counter = 0
             self._CanSend()
 
