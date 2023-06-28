@@ -4,7 +4,8 @@ from PyQt5.QtWidgets import (
     QWidget, QPushButton, QLineEdit, 
     QGroupBox, QSpacerItem, QSlider,
     QFrame, QTabWidget, QScrollArea,
-    QComboBox, QMenu, QAction, QFileDialog
+    QComboBox, QMenu, QAction, QFileDialog,
+    QMessageBox
 )
 from PyQt5.QtGui import (
     QFont, QIntValidator, QIcon,
@@ -13,7 +14,7 @@ from PyQt5.QtCore import (
     Qt, QSize, QThread,
     QEasingCurve, QPropertyAnimation, 
     QSequentialAnimationGroup, pyqtSlot, 
-    pyqtProperty, QTimer
+    pyqtProperty, QTimer, QSettings
 )
 import numpy as np
 import time
@@ -42,6 +43,7 @@ class MainWindow(QMainWindow):
         self._PollingsNeeded = 1
         self._backgroundColors = [145, 147, 191]
         self._runningAnimations = dict()
+        self._changeDone = False
 
         self._InitLogger()
         self._Initworksheet()
@@ -67,6 +69,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, *args, **kwargs):
         self._StopPolling()
 
+        self.settings.setValue( "windowScreenGeometry", self.saveGeometry() )
+
         try:
             self._workbook.close()
             self._logger.info("WorkBook Closed")
@@ -82,7 +86,7 @@ class MainWindow(QMainWindow):
         except:
             self._logger.info("Error terminating CAN thread")
 
-        self._saveFile()
+        self._showSaveWindow()
         to_json = self._store_data_path_value
         with open(f'{self._store_save_file_path}', 'w') as f:
             json.dump(to_json, f)
@@ -123,7 +127,14 @@ class MainWindow(QMainWindow):
 
     def _SetApp(self):
         self.setWindowTitle("PKE Setup")
-        self.resize(QSize(1400, 800))
+
+        self.settings = QSettings( 'ITELMA', 'PKE Setup' )
+        windowScreenGeometry = self.settings.value( "windowScreenGeometry" )
+        if windowScreenGeometry:
+            self.restoreGeometry(windowScreenGeometry)
+        else:
+            self.resize(QSize(1400, 800))
+
         # self.setStyleSheet("background-color: white;")
 
         self._layoutBig = QHBoxLayout()
@@ -221,7 +232,36 @@ class MainWindow(QMainWindow):
         helpMenu = menuBar.addMenu("&Help")
         helpMenu.addAction(aboutAction)
 
+    def _showSaveWindow(self):
+        fileName = self._store_data_path
+        if fileName != '':
+            try:
+                with open(f'{self._store_data_path}', 'r') as f:
+                    to_json = json.load(f)
+
+                if (to_json['key_ants'] != self._generateJson() or
+                    to_json['points'] != self._interactiveData.generateJson()):
+
+                    fileName = fileName[fileName.rfind('/')+1:]
+                    fileName = fileName[:-len('.pkesetup')]
+                    msgBox = QMessageBox()
+                    msgBox.setIcon(QMessageBox.Information)
+                    msgBox.setText(f"Do you want to save changes in \"{fileName}\"?")
+                    msgBox.setWindowTitle("Message")
+                    msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                    # msgBox.buttonClicked.connect(msgButtonClick)
+
+                    returnValue = msgBox.exec()
+                    if returnValue == QMessageBox.Yes:
+                        self._saveFile()
+
+            except:
+                self._logger.info("no such file yet")
+
+
+
     def _newFile(self):
+        self._showSaveWindow()
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
         fileName, _ = QFileDialog.getSaveFileName(self,"Create New File","","Pke Setup (*.pkesetup);;All Files (*)", options=options)
@@ -230,12 +270,27 @@ class MainWindow(QMainWindow):
                 fileName += '.pkesetup'
             
             self._store_data_path = fileName
+            
+            for nCnt in range(0, len(self._widgetAntCheckBox)):
+                self._widgetAntCheckBox[nCnt].setChecked(True)
+
+            for nCnt in range(0, len(self._widgetKeyCheckBox)):
+                self._widgetKeyCheckBox[nCnt].setChecked(True)
+
+            self._widgetAuthCheckBox.setChecked(True)
+            self._widgetCurrSlider.setValue(32)
+
+            self._interactiveData.clearData()
+
             self._saveFile()
+
+            self._PrintData(False)
 
             fileName = fileName[fileName.rfind('/')+1:]
             self.setWindowTitle(f"PKE Setup - {fileName[:-len('.pkesetup')]}")
     
     def _openFile(self):
+        self._showSaveWindow()
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
         fileName, _ = QFileDialog.getOpenFileName(self,"Open File", "","Pke Setup (*.pkesetup);;All Files (*)", options=options)
@@ -243,6 +298,8 @@ class MainWindow(QMainWindow):
         if fileName != "":
             self._store_data_path = fileName
             self._restoreData()
+
+            self._PrintData(False)
 
             fileName = fileName[fileName.rfind('/')+1:]
             self.setWindowTitle(f"PKE Setup - {fileName[:-len('.pkesetup')]}")
@@ -285,6 +342,22 @@ class MainWindow(QMainWindow):
             self._saveFileAs()
             return
 
+        to_json = {}
+        try:
+            with open(f'{self._store_data_path}', 'r') as f:
+                to_json = json.load(f)
+        except:
+            self._logger.info("no such file yet")
+
+        to_json['key_ants'] = self._generateJson()
+
+        with open(f'{self._store_data_path}', 'w') as f:
+            json.dump(to_json, f)
+
+        self._interactiveData.saveData(self._store_data_path)
+
+
+    def _generateJson(self):
         to_json = {
             'ants': [],
             'keys': [],
@@ -303,19 +376,7 @@ class MainWindow(QMainWindow):
 
         to_json['current'] = self._widgetCurrSlider.value()
 
-        to_json_main = {}
-        try:
-            with open(f'{self._store_data_path}', 'r') as f:
-                to_json_main = json.load(f)
-        except:
-            self._logger.info("no such file yet")
-
-        to_json_main['key_ants'] = to_json
-
-        with open(f'{self._store_data_path}', 'w') as f:
-            json.dump(to_json_main, f)
-
-        self._interactiveData.saveData(self._store_data_path)
+        return to_json
 
     def _saveFileAs(self):
         options = QFileDialog.Options()

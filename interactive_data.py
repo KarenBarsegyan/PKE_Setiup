@@ -114,6 +114,22 @@ class InteractiveData(QThread):
             self._logger.info("No points data yet")
 
     def saveData(self, path):
+        to_json = {}
+        try:
+            with open(f'{path}', 'r') as f:
+                to_json = json.load(f)
+        except:
+            self._logger.info("no such file yet")
+
+        to_json['points'] = self.generateJson()
+
+        with open(f'{path}', 'w') as f:
+            json.dump(to_json, f, cls=NumpyArrayEncoder)
+
+        self._paintCalibrationEvent()
+        self._paintMeasureEvent()
+
+    def generateJson(self):
         data = dict()
 
         d = dict()
@@ -125,19 +141,18 @@ class InteractiveData(QThread):
         for point in self._antPoints:  
             d[json.dumps(point)] = self._antPoints[point]
         data['pointsAnt'] = d
+
+        return data
+
+    def clearData(self):
+        self._greenPoints.clear()
+        self._yellowPoints.clear()
+        self._redPoints.clear()
+        self._bluePoints.clear()
+        self._darkRedPoints.clear()
+        self._keyCircles.clear()
+        self._antPoints.clear()
         
-        to_json = {}
-        try:
-            with open(f'{path}', 'r') as f:
-                to_json = json.load(f)
-        except:
-            self._logger.info("no such file yet")
-
-        to_json['points'] = data
-
-        with open(f'{path}', 'w') as f:
-            json.dump(to_json, f, cls=NumpyArrayEncoder)
-
     def RememberData(self, Data, isDone):
         self._data = Data
         self._average_data += self._data
