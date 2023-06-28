@@ -258,8 +258,6 @@ class MainWindow(QMainWindow):
             except:
                 self._logger.info("no such file yet")
 
-
-
     def _newFile(self):
         self._showSaveWindow()
         options = QFileDialog.Options()
@@ -327,6 +325,8 @@ class MainWindow(QMainWindow):
             else:
                 self._widgetAuthCheckBox.setChecked(True)
 
+            self._widgetPollingAmount.setText(str(keysAntsData['pollings_amount']))
+
             val = keysAntsData['current']
             self._widgetCurrSlider.setValue(val)
             self._widAntCurrValue.setText('Current: %.2f mA' % (15.625*(val)))
@@ -356,7 +356,6 @@ class MainWindow(QMainWindow):
 
         self._interactiveData.saveData(self._store_data_path)
 
-
     def _generateJson(self):
         to_json = {
             'ants': [],
@@ -373,6 +372,8 @@ class MainWindow(QMainWindow):
 
         if self._widgetAuthCheckBox.isChecked(): 
             to_json['auth'] = 1
+
+        to_json['pollings_amount'] = int(self._widgetPollingAmount.text())
 
         to_json['current'] = self._widgetCurrSlider.value()
 
