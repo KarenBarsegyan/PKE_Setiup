@@ -52,6 +52,7 @@ class CanSendRecv(QThread):
         self._firstMsgTime = 0
         self._firstReceivedMsg = True
         self._AntMask = 0x3F
+        self._KeyMask = 0x1F
         self._PowerMode = 0
         self._AuthMode = 1
         self._PerformDiag = 0
@@ -89,7 +90,8 @@ class CanSendRecv(QThread):
                           self._AuthMode, 
                           self._PerformDiag,
                           self._Current,
-                          0, 0],
+                          self._KeyMask,
+                          0],
                     is_extended_id = False
                 )
                 self._amountOfPollings = 0
@@ -154,6 +156,10 @@ class CanSendRecv(QThread):
         self._AntMask = mask
         self._CanSend()
 
+    def SetKeyMask(self, mask):
+        self._KeyMask = mask
+        self._CanSend()
+
     def SetPowerMode(self, mode):
         self._PowerMode = mode
         self._CanSend()
@@ -173,6 +179,7 @@ class CanSendRecv(QThread):
     def StartPoll(self, amountOfPollings):
         self._amountOfPollings = amountOfPollings
         self._firstReceivedMsg = True
+
         self._CanSend()
 
     def _ParseData(self, msg):

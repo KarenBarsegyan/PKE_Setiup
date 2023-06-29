@@ -1090,3 +1090,7 @@
 2023-06-26 16:53:56,518 - WARNING - CanReceive error: 'set' object is not subscriptable
 2023-06-26 16:53:57,905 - WARNING - CanReceive error: 'set' object is not subscriptable
 2023-06-26 16:54:18,408 - WARNING - CanReceive error: 'set' object is not subscriptable
+2023-06-29 10:26:41,684 - WARNING - CAN didn't send: exception: access violation writing 0x000001C30A640250
+2023-06-29 10:29:02,414 - WARNING - CAN didn't send: exception: access violation writing 0x000001D7262401C0
+2023-06-29 15:12:55,608 - WARNING - CAN didn't send: unhashable type
+2023-06-29 16:41:22,346 - WARNING - CAN didn't send: unhashable type

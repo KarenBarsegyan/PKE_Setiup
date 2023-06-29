@@ -1,12 +1,16 @@
 
 from PyQt5.QtWidgets import (
-    QVBoxLayout, QLabel,
-    QWidget, QScrollArea, 
-    QMenu, QAction
+    QMainWindow, QCheckBox, QVBoxLayout, 
+    QApplication, QLabel, QHBoxLayout, 
+    QWidget, QPushButton, QLineEdit, 
+    QGroupBox, QSpacerItem, QSlider,
+    QFrame, QTabWidget, QScrollArea,
+    QComboBox, QMenu, QAction, QFileDialog,
+    QMessageBox
 )
 from PyQt5.QtGui import (
     QPixmap, QPainter, QPen, QColor,
-    QPaintEvent
+    QFont, QCursor
 )
 from PyQt5.QtCore import (
     Qt, QThread, QPoint, QSize, QRect,
@@ -39,6 +43,7 @@ class InteractiveData(QThread):
 
         self._mesh_step = 25
         self._greenPoints = dict()
+        self._highlitedPoints = dict()
         self._yellowPoints = dict()
         self._redPoints = dict()
         self._bluePoints = dict()
@@ -50,7 +55,7 @@ class InteractiveData(QThread):
         self._yellowPointInProgress = False
         self._AntAmount = 6
         self._KeyAmount = 5
-        self._data = np.zeros((((self._AntAmount, self._KeyAmount, 3))), dtype=int)
+        self._data = np.zeros((((self._AntAmount+1, 3))), dtype=int)
         self._average_data = self._data
         self._askForPollingFunc = askForPollingFunc
         self._amountsOfAverage = 0
@@ -58,6 +63,8 @@ class InteractiveData(QThread):
         self._picHeight = 0
         self._distCoeff = dict()
         self._store_data_path = ''
+        self._keyChosen = 0
+        self._rssiFloatingWindowIsHidden = True
 
         self._yellow_radius = 0
         self._yellowAnimation = QPropertyAnimation(self, b"yellow_radius", self)
@@ -67,10 +74,9 @@ class InteractiveData(QThread):
         self._yellowAnimation.setEndValue(10)
 
         self._init_logger()
-        self.Calibrate()
 
-    def __del__(self):
-        pass
+    def closeEvent(self):
+        self._hideFloatingWindow()
 
     def _init_logger(self):
         logs_path = "app_logs"
@@ -107,6 +113,7 @@ class InteractiveData(QThread):
                 antNum = pointsData['pointsAnt'][point]
                 self._antPoints[tuple(json.loads(point))] = antNum
 
+            self.Calibrate()
             self._paintCalibrationEvent()
             self._paintMeasureEvent()
 
@@ -153,17 +160,24 @@ class InteractiveData(QThread):
         self._keyCircles.clear()
         self._antPoints.clear()
         
-    def RememberData(self, Data, isDone):
+    def RememberData(self, Data, keyNum, authStat, isDone):
         self._data = Data
-        self._average_data += self._data
-        self._amountsOfAverage += 1
-    
-        if isDone and self._yellowPointInProgress:
-           self._data = np.floor_divide(self._average_data, self._amountsOfAverage)
-           self._setPoint(type = self.PointType.Green, coords = self._lastYellowPos)
-           self._average_data = np.zeros((((self._AntAmount, self._KeyAmount, 3))), dtype=int)
-           self._amountsOfAverage = 0
-           self._yellowPointInProgress = False
+        if self._yellowPointInProgress:
+            print(self._average_data[0][0], self._amountsOfAverage)
+            self._average_data += self._data
+            self._amountsOfAverage += 1
+            if (authStat):
+                self._authOkAmount += 1
+        
+            if isDone and self._yellowPointInProgress:
+                print("done")
+                self._data = np.floor_divide(self._average_data, self._amountsOfAverage)
+                self._data[self._AntAmount][0] = keyNum
+                self._data[self._AntAmount][1] = self._authOkAmount
+                self._data[self._AntAmount][2] = self._amountsOfAverage
+
+                self._setPoint(type = self.PointType.Green, coords = self._lastYellowPos)
+                self._yellowPointInProgress = False
 
         self._updateToolbarData()
         self._calcDistance()
@@ -193,6 +207,8 @@ class InteractiveData(QThread):
 
         self._calibrationLabel = QLabel()
         self._calibrationLabel.mousePressEvent = self._mouseClickCallback
+        self._calibrationLabel.keyPressEvent = self.keyPressEvent
+        # self._calibrationLabel.focusInEvent = self.focusOutEvent
 
         self._calibrationLabel.setContextMenuPolicy(Qt.ActionsContextMenu)
         self._calibrationLabel.addAction(self._writeRSSIAction)
@@ -205,6 +221,12 @@ class InteractiveData(QThread):
 
         self._paintMainPic(self._calibrationLabel)
         self._paintCalibrationEvent()
+
+        self._rssiFloatingWindow = self._SetAntsData()
+        self._rssiFloatingWindow.setWindowFlag(Qt.FramelessWindowHint)
+        self._rssiFloatingWindow.keyPressEvent = self.keyPressEvent
+        self._rssiFloatingWindow.focusOutEvent = self.focusOutEvent
+        # self._rssiFloatingWindow.setFocusPolicy(Qt.StrongFocus)
 
         v_widget = QWidget()
         v_widget.setLayout(localLayout)  
@@ -238,26 +260,25 @@ class InteractiveData(QThread):
         return scrollPicture    
 
     def Calibrate(self):
-        try:
+        # try:
             coeff = 0
             amountOfCalcs = 0
             for antPos in self._antPoints:
                 nAnt = self._antPoints[antPos]   
                 for gPos in self._greenPoints:
-                    for nKey in range(1):
-                        sumRSSI = 0
-                        for i in range(3):
-                            sumRSSI += (self._greenPoints[gPos][nAnt][nKey][i])**2
+                    sumRSSI = 0
+                    for i in range(3):
+                        sumRSSI += (self._greenPoints[gPos][nAnt][i])**2
 
-                        sumRSSI = int(round(sumRSSI ** 0.5))
+                    sumRSSI = int(round(sumRSSI ** 0.5))
 
-                        if sumRSSI > 0:
-                            dist = ((gPos[0] - antPos[0])**2 + (gPos[1] - antPos[1])**2)**0.5
-                            coeff += sumRSSI*dist*dist
-                            amountOfCalcs += 1
+                    if sumRSSI > 0:
+                        dist = ((gPos[0] - antPos[0])**2 + (gPos[1] - antPos[1])**2)**0.5
+                        coeff += sumRSSI*dist*dist
+                        amountOfCalcs += 1
 
                     # print(f"ANT: {nAnt} \t RSSI: {sumRSSI} \t Dist: {int(dist)} \t Coeff: {int(sumRSSI*dist*dist)}")
-                    # print(f"Ant: {nAnt}\nnKey: {nKey}\nDist: {dist}\nRSSI: {sumRSSI}")
+                    # print(f"Ant: {nAnt}\nnKey: {self._greenPoints[gPos][self._AntAmount][0]+1}\nDist: {dist}\nRSSI: {sumRSSI}")
                 if(amountOfCalcs != 0):
                     self._distCoeff[nAnt] = coeff/amountOfCalcs
                     coeff = 0
@@ -265,18 +286,18 @@ class InteractiveData(QThread):
 
             # print(f"Mean val: {self._distCoeff}")
             # print("--------------------------------\n")
-        except:
-            self._logger.warning("No data to calibrate")
+        # except:
+        #     self._logger.warning("No data to calibrate")
 
     def _calcDistance(self):
-        try:
+        # try:
             self._keyCircles.clear()
 
             for antPos in self._antPoints:
                 nAnt = self._antPoints[antPos]   
                 sumRSSI = 0
                 for i in range(3):
-                    sumRSSI += (self._data[nAnt][0][i])**2
+                    sumRSSI += (self._data[nAnt][i])**2
                 sumRSSI = int(round(sumRSSI ** 0.5))
 
                 if sumRSSI > 0:
@@ -299,11 +320,11 @@ class InteractiveData(QThread):
             self._findKeyPoint(pointsList)
 
             self._paintMeasureEvent()
-        except:
-            self._logger.warning("Calc Distance Error")
+        # except:
+        #     self._logger.warning("Calc Distance Error")
 
     def _findIntersectionPoint(self, circ1pos, r1, circ2pos, r2):
-        try:
+        # try:
             if circ1pos == circ2pos:
                 return None
 
@@ -361,11 +382,11 @@ class InteractiveData(QThread):
                 res = [pos1, pos2]
                 res.sort()
                 return tuple([res[0], res[1]])
-        except:
-            self._logger.warning("Find Intersection Error")
+        # except:
+        #     self._logger.warning("Find Intersection Error")
 
     def _findKeyPoint(self, points):
-        try:
+        # try:
             self._darkRedPoints.clear()
 
             if len(points) < 2:
@@ -417,8 +438,8 @@ class InteractiveData(QThread):
             self._redPoints.clear()
             p = tuple([int(sumX/amountOfPairs), int(sumY/amountOfPairs)])
             self._redPoints[p] = 0 
-        except:
-            self._logger.warning("Find key point Error")
+        # except:
+        #     self._logger.warning("Find key point Error")
 
     def _populateSetAnts(self):
         self._setAntMenu.clear()
@@ -441,14 +462,26 @@ class InteractiveData(QThread):
                                (round(event.pos().y() / self._mesh_step) * self._mesh_step)])
 
         if event.button() == Qt.LeftButton:
-            if self._whichPointPlaced() == None:
+            if self._whichPointPlaced() == None and self._rssiFloatingWindowIsHidden:
                 if not self._yellowPointInProgress:
                     self._setPoint(type = self.PointType.Yellow)
-            elif self._whichPointPlaced() == self.PointType.Green:
-                pass
-        
+
+            if self._whichPointPlaced() == self.PointType.Green:
+                self._showFloatingWindow()
+
+            if self._rssiFloatingWindow.isHidden():
+                self._rssiFloatingWindowIsHidden = True
+
         if event.button() == Qt.RightButton:
+            self._hideFloatingWindow()
             self._updateToolbarData()
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Escape:
+            self._hideFloatingWindow()
+    
+    def focusOutEvent(self, e):
+        self._hideFloatingWindow()
   
     def _updateToolbarData(self):
         if self._whichPointPlaced() == None:
@@ -519,6 +552,7 @@ class InteractiveData(QThread):
         if pos in self._greenPoints.keys():
             del self._greenPoints[pos]
             type = self.PointType.Green
+            self.Calibrate()
 
         if pos in self._yellowPoints.keys():
             self._askForPollingFunc(start = False)
@@ -555,6 +589,9 @@ class InteractiveData(QThread):
                 self._yellowPointInProgress = True
                 self._lastYellowPos = pos
                 self._askForPollingFunc(start = True)
+                self._amountsOfAverage = 0
+                self._average_data = np.zeros((((self._AntAmount+1, 3))), dtype=int)
+                self._authOkAmount = 0
                 self._yellowPoints[pos] = 0
                 self._yellowAnimation.start()
 
@@ -562,10 +599,33 @@ class InteractiveData(QThread):
                 self._redPoints[pos] = 0
 
             elif type == self.PointType.Ant:  
-                self._antPoints[pos] = antNum
+                self._antPoints[pos] = antNum             
 
             self._paintCalibrationEvent()
             self._paintMeasureEvent()
+
+    def _showFloatingWindow(self):
+        self._highlitedPoints.clear()
+        self._highlitedPoints[self._lastPos] = 0
+
+        cursPos = tuple([(round(QCursor.pos().x() / self._mesh_step) * self._mesh_step),
+                         (round(QCursor.pos().y() / self._mesh_step) * self._mesh_step)])
+        
+        self._rssiFloatingWindow.move(cursPos[0], int(cursPos[1] + self._mesh_step/2))
+        self._printAntsData()
+
+        self._highlitedPoints.clear()
+        self._highlitedPoints[self._lastPos] = 0
+        self._paintCalibrationEvent()
+
+        self._rssiFloatingWindowIsHidden = False
+        self._rssiFloatingWindow.setFocus()
+        self._rssiFloatingWindow.show()
+
+    def _hideFloatingWindow(self):
+        self._rssiFloatingWindow.hide()
+        self._highlitedPoints.clear()
+        self._paintCalibrationEvent()
 
     def _whichPointPlaced(self) -> PointType:
         if self._lastPos in self._greenPoints.keys():
@@ -662,6 +722,15 @@ class InteractiveData(QThread):
                          QSize(size, size))
             painter.drawRect(rect)
 
+        pen = QPen()
+        radius = 12
+        pen.setWidth(1)
+        pen.setColor(QColor(21, 207, 0))
+        painter.setPen(pen)
+        painter.setBrush(QColor(21, 207, 0))
+        for point in self._highlitedPoints:
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+
         self._calibrationLabel.update()
 
     def _paintMeasureEvent(self, event = None):
@@ -721,6 +790,119 @@ class InteractiveData(QThread):
 
 
         self._measureLabel.update()
+
+    def _SetAntsData(self): 
+        self._antFrames = []
+        self._keyFrames = []
+        smallVLayout = []
+        bigHLayout = QHBoxLayout()
+        bigHLayout.setSpacing(0)
+        for nAnt in range(self._AntAmount+1):
+            smallVLayout.append(QVBoxLayout())
+            self._antFrames.append(QFrame())
+            self._antFrames[nAnt].setLayout(smallVLayout[nAnt])
+            # self._antFrames[nAnt].setStyleSheet("border: 1px solid black")
+            smallVLayout[nAnt].setContentsMargins(0,0,0,0)
+
+            bigHLayout.addWidget(self._antFrames[nAnt])
+            if nAnt == 0:
+                bigHLayout.setStretch(nAnt, 0)
+            else:
+                bigHLayout.setStretch(nAnt, 1)
+
+
+        self._RSSI_Widgets = []
+        
+        w = QLabel(f"")
+        font = w.font()
+        font.setPointSize(15)
+        w.setFont(font)
+        smallVLayout[0].addWidget(w)
+        smallVLayout[0].setStretch(0, 0)
+        smallVLayout[0].setSpacing(0)
+        smallVLayout[0].setContentsMargins(0,0,0,0)
+
+
+        keyFrameLocal=QFrame()
+
+        self._keyLabel = QLabel()
+        font = self._keyLabel.font()
+        font.setPointSize(10)
+        self._keyLabel.setFont(font)
+        self._keyLabel.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+
+        self._authLabel = QLabel()
+        font = self._authLabel.font()
+        font.setPointSize(10)
+        self._authLabel.setFont(font)
+        self._authLabel.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+
+        l = QVBoxLayout()
+        l.addWidget(self._keyLabel)
+        l.addWidget(self._authLabel)
+        l.setSpacing(0)
+        keyFrameLocal.setLayout(l)
+        smallVLayout[0].addWidget(keyFrameLocal)
+        smallVLayout[0].setStretch(1, 1)
+
+        self._keyFrames.append(keyFrameLocal)
+
+        for nAnt in range(1, self._AntAmount+1):
+            w = QLabel(f"Ant {nAnt}")
+            font = w.font()
+            font.setPointSize(10)
+            w.setFont(font)
+            w.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+            smallVLayout[nAnt].addWidget(w)
+            smallVLayout[nAnt].setSpacing(0)
+
+            keyFrameLocal = QFrame()
+
+            k = QLabel()
+            k.setFont(QFont('Courier', 10))
+            k.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+            
+            groupbox = QGroupBox()
+            font = groupbox.font()
+            font.setPointSize(10)
+            groupbox.setFont(font)
+            Box = QVBoxLayout()
+            Box.setSpacing(0)
+            groupbox.setLayout(Box)
+            Box.addWidget(k)
+
+            l = QVBoxLayout()
+            l.addWidget(groupbox)
+            l.setSpacing(0)
+            keyFrameLocal.setLayout(l)
+
+            smallVLayout[nAnt].addWidget(keyFrameLocal)
+            smallVLayout[nAnt].setStretch(1, 1)
+
+            self._keyFrames.append(k)
+
+            self._RSSI_Widgets.append(k)
+
+        w = QWidget()
+        w.setLayout(bigHLayout)
+
+        scrollAntsData = QScrollArea()
+        scrollAntsData.setWidget(w)
+        scrollAntsData.setWidgetResizable(True) 
+        scrollAntsData.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scrollAntsData.setFixedHeight(180)
+        scrollAntsData.setMaximumWidth(500)
+
+        return scrollAntsData
+
+    def _printAntsData(self):
+        Data = self._greenPoints[self._lastPos]
+        self._keyLabel.setText(f"Key {self._greenPoints[self._lastPos][self._AntAmount][0]+1}")
+        self._authLabel.setText(f"Auths {self._greenPoints[self._lastPos][self._AntAmount][1]}/{self._greenPoints[self._lastPos][self._AntAmount][2]}")
+        for nAnt in range(self._AntAmount):
+            self._RSSI_Widgets[nAnt].setText(f"X: {' '*(3-len(str(Data[nAnt][0])))}{Data[nAnt][0]}\n" +
+                                             f"Y: {' '*(3-len(str(Data[nAnt][1])))}{Data[nAnt][1]}\n" +
+                                             f"Z: {' '*(3-len(str(Data[nAnt][2])))}{Data[nAnt][2]}")
 
     @pyqtProperty(float)
     def yellow_radius(self):

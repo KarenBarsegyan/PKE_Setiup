@@ -87,9 +87,12 @@ class MainWindow(QMainWindow):
             self._logger.info("Error terminating CAN thread")
 
         self._showSaveWindow()
+        self._showSaveNewFileWindow()
         to_json = self._store_data_path_value
         with open(f'{self._store_save_file_path}', 'w') as f:
             json.dump(to_json, f)
+
+        self._interactiveData.closeEvent()
 
         super(QMainWindow, self).closeEvent(*args, **kwargs)
 
@@ -165,12 +168,13 @@ class MainWindow(QMainWindow):
         self._SetCAN()
         self._SetStatuses()
         self._SetStartPolling()
-        self._SetStartDiag()
-        self._SetPowerMode()
         self._SetLogs()
         self._SetAntCheckBox()
         self._SetKeyCheckBox()
+        self._SetKeyForMeasure()
         self._SetAntCurrents()
+        self._SetStartDiag()
+        self._SetPowerMode()
 
         self._PrintData(False)
         
@@ -257,6 +261,20 @@ class MainWindow(QMainWindow):
 
             except:
                 self._logger.info("no such file yet")
+        
+    def _showSaveNewFileWindow(self):
+        fileName = self._store_data_path
+        if fileName == '':
+            msgBox = QMessageBox()
+            msgBox.setIcon(QMessageBox.Information)
+            msgBox.setText(f"Do you want to create new file ?")
+            msgBox.setWindowTitle("Message")
+            msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            # msgBox.buttonClicked.connect(msgButtonClick)
+
+            returnValue = msgBox.exec()
+            if returnValue == QMessageBox.Yes:
+                self._newFile()
 
     def _newFile(self):
         self._showSaveWindow()
@@ -332,6 +350,8 @@ class MainWindow(QMainWindow):
             self._widAntCurrValue.setText('Current: %.2f mA' % (15.625*(val)))
             self._CanWorker.setCurrent(val)
 
+            self._widgetKeyForMeasure.setCurrentIndex(keysAntsData['key_for_calibration'])
+
         except:
             self.setWindowTitle(f"PKE Setup - File Was deleted or moved")
             self._store_data_path_value = ""
@@ -376,6 +396,8 @@ class MainWindow(QMainWindow):
         to_json['pollings_amount'] = int(self._widgetPollingAmount.text())
 
         to_json['current'] = self._widgetCurrSlider.value()
+
+        to_json['key_for_calibration'] = self._widgetKeyForMeasure.currentIndex()
 
         return to_json
 
@@ -870,6 +892,24 @@ class MainWindow(QMainWindow):
 
         self._layoutWidgets.addWidget(groupbox)
 
+    def _SetKeyForMeasure(self):
+        groupbox = QGroupBox("Key for calibration")
+        font = groupbox.font()
+        font.setPointSize(10)
+        groupbox.setFont(font)
+        Choosebox = QVBoxLayout()
+        Choosebox.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        Choosebox.setSpacing(15)
+        groupbox.setLayout(Choosebox)
+
+        self._widgetKeyForMeasure = QComboBox()
+        for nKey in range(0, self._KeyAmount):
+            self._widgetKeyForMeasure.addItem(f"Key {nKey+1}")
+
+        Choosebox.addWidget(self._widgetKeyForMeasure)
+
+        self._layoutWidgets.addWidget(groupbox)
+
     def _CanInit(self):
         # Create a QThread and Worker object
         self._CanThread = QThread()
@@ -918,12 +958,16 @@ class MainWindow(QMainWindow):
         self._CanWorker.SetAntMask(AntMask)
 
     def _updateKeyMask(self):
+        KeyMask = 0
         for nAnt in range(0, len(self._widgetAntCheckBox)+1):
             for nKey in range(0, len(self._widgetKeyCheckBox)):
                 if self._widgetKeyCheckBox[nKey].isChecked():
+                    KeyMask |= 1 << nKey
                     self._keyFrames[nAnt][nKey].show()
                 else:
                     self._keyFrames[nAnt][nKey].hide()
+        
+        self._CanWorker.SetKeyMask(KeyMask)
 
     def _LastKeyIdUpdate(self, lastPressedKey):
         self._widgetLastKeyNum.setText(f"Last Key Pressed Num: {lastPressedKey}\t\t")
@@ -968,6 +1012,10 @@ class MainWindow(QMainWindow):
         self._CanWorker.SetPowerMode(self._PowerMode)
 
     def _StartPollingHandler(self):
+        self._updateKeyMask()
+        self._StartPolling()
+
+    def _StartPolling(self):
         if(self._widgetStartPolling.text() == "Stop Polling"):
             self._StopPolling()
             return
@@ -1035,7 +1083,9 @@ class MainWindow(QMainWindow):
             self._StopPolling()
 
         if start:
-            self._StartPollingHandler()
+            keyNum = self._widgetKeyForMeasure.currentIndex()
+            self._CanWorker.SetKeyMask(1 << keyNum)
+            self._StartPolling()
 
     def _PrintData(self, res: bool):
         if not res:
@@ -1073,7 +1123,16 @@ class MainWindow(QMainWindow):
                     
                 self._widgetPollingsDone.setText(f"Target: ∞ ; Done: - ")
 
-            self._interactiveData.RememberData(Data, isPollDone)
+            keyNum = self._widgetKeyForMeasure.currentIndex()
+            dataForCalibration = np.zeros((((self._AntAmount+1, 3))), dtype=int)
+
+            for nAnt in range(0, self._AntAmount):
+                dataForCalibration[nAnt][0] = Data[nAnt][keyNum][0]
+                dataForCalibration[nAnt][1] = Data[nAnt][keyNum][1]
+                dataForCalibration[nAnt][2] = Data[nAnt][keyNum][2]
+
+
+            self._interactiveData.RememberData(dataForCalibration, keyNum, self._authStatus, isPollDone)
             self._PrintLogData()
 
         for nAnt in range(self._AntAmount):
@@ -1241,7 +1300,6 @@ class MainWindow(QMainWindow):
                                                                           {pos}); \
                                                    border-width: 2px; \
                                                    border-radius: 10px;")
-
 
 
 def app_start():
