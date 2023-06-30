@@ -36,7 +36,7 @@ class CanSendRecv(QThread):
     finished = pyqtSignal()
     canInited = pyqtSignal()
     canDeInited = pyqtSignal()
-    canReceivedAll = pyqtSignal(bool)
+    canReceivedAll = pyqtSignal()
     keyNumIdReceived = pyqtSignal(int)
     keyAuthReceived = pyqtSignal(int)
     antImpsReceived = pyqtSignal(list)
@@ -140,7 +140,7 @@ class CanSendRecv(QThread):
                     for idx in range(0, len(self._isAllReceived)):
                         self._isAllReceived[idx] = False 
 
-                    self.canReceivedAll.emit(True)
+                    self.canReceivedAll.emit()
         except Exception as exc:
             self._logger.warning(f"CanReceive error: {exc}")
 
@@ -462,7 +462,7 @@ class CanSendRecv(QThread):
 
         QTimer.singleShot(100, self.MainTask)
 
-    def Start(self):
+    def start(self):
         self._logger.info("CAN Task Run")
         try:
             self.BusInit()

@@ -1,12 +1,7 @@
-
 from PyQt5.QtWidgets import (
-    QMainWindow, QCheckBox, QVBoxLayout, 
-    QApplication, QLabel, QHBoxLayout, 
-    QWidget, QPushButton, QLineEdit, 
-    QGroupBox, QSpacerItem, QSlider,
-    QFrame, QTabWidget, QScrollArea,
-    QComboBox, QMenu, QAction, QFileDialog,
-    QMessageBox
+    QVBoxLayout, QLabel, QHBoxLayout, 
+    QWidget, QGroupBox, QFrame, 
+    QScrollArea, QMenu, QAction
 )
 from PyQt5.QtGui import (
     QPixmap, QPainter, QPen, QColor,
@@ -31,7 +26,7 @@ class NumpyArrayEncoder(JSONEncoder):
             return obj.tolist()
         return JSONEncoder.default(self, obj)
 
-class InteractiveData(QThread):
+class PointsPainter(QThread):
     class PointType(int):
         Green = 1
         Yellow = 2 

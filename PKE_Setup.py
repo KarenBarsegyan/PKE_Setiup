@@ -20,8 +20,8 @@ import numpy as np
 import time
 import xlsxwriter
 import logging
-from CAN import CanSendRecv
-from interactive_data import InteractiveData
+from CAN_bus import CanSendRecv
+from points_painter import PointsPainter
 import os
 import json
 from functools import partial
@@ -31,25 +31,26 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
 
-        self._PowerMode = 0
-        self._AntAmount = 6
-        self._KeyAmount = 5
+        self._power_mode = 0
+        self._ant_amount = 6
+        self._key_amount = 5
         self._store_save_file_path = "store_data/last_opened"
         self._store_data_path_value = ""
         self._logs_path = "app_logs"
-        self._PollingsDone = 0
-        self._authStatus = False
-        self._pollingInProgress = False
-        self._PollingsNeeded = 1
-        self._backgroundColors = [145, 147, 191]
-        self._runningAnimations = dict()
-        self._changeDone = False
+        self._pollings_done = 0
+        self._auth_status = False
+        self._is_polling_in_progress = False
+        self._pollings_needed = 1
+        self._background_colors = [145, 147, 191]
+        self._running_animations = dict()
 
-        self._InitLogger()
-        self._Initworksheet()
-        self._SetApp()
-        self._CanInit()
-
+        self._initLogger()
+        self._initWorksheet()
+        self._setApp()
+        self._busInit()
+        self._openPreviousFile()
+        
+    def _openPreviousFile(self):
         try:
             with open(f'{self._store_save_file_path}', 'r') as f:
                 to_json = json.load(f)
@@ -58,45 +59,53 @@ class MainWindow(QMainWindow):
         except:
             self._logger.info("no such file yet")
 
-        fileName = self._store_data_path_value
-        if fileName != "":
-            self._store_data_path = fileName
+        filename = self._store_data_path_value
+        if filename != "":
+            self._store_data_path = filename
 
-            fileName = fileName[fileName.rfind('/')+1:]
-            self.setWindowTitle(f"PKE Setup - {fileName[:-len('.pkesetup')]}")
+            filename = filename[filename.rfind('/')+1:]
+            self.setWindowTitle(f"PKE Setup - {filename[:-len('.pkesetup')]}")
             self._restoreData()
 
     def closeEvent(self, *args, **kwargs):
-        self._StopPolling()
+        # Say hardware to stop polling
+        self._stopPolling()
 
-        self.settings.setValue( "windowScreenGeometry", self.saveGeometry() )
+        # Save window size and pos
+        self.settings.setValue( "window_screen_geometry", self.saveGeometry() )
 
+        # Close Exel Log table
         try:
             self._workbook.close()
             self._logger.info("WorkBook Closed")
         except:
             self._logger.info("Error closing WorkBook")
 
+        # Stop CAN bus thread
         try:
-            if (self._CanThread.isRunning()):
-                self._CanThread.quit()
-                self._CanThread.wait()
+            if (self._bus_thread.isRunning()):
+                self._bus_thread.quit()
+                self._bus_thread.wait()
 
             self._logger.info("CAN thread terminated")
         except:
             self._logger.info("Error terminating CAN thread")
 
+        # Check if file wasn't created at all or if it hs changed
         self._showSaveWindow()
         self._showSaveNewFileWindow()
+
+        # Save last opened file full path
         to_json = self._store_data_path_value
         with open(f'{self._store_save_file_path}', 'w') as f:
             json.dump(to_json, f)
 
-        self._interactiveData.closeEvent()
+        # Send close events to other Qt objects
+        self._points_painter.closeEvent()
 
         super(QMainWindow, self).closeEvent(*args, **kwargs)
 
-    def _InitLogger(self):
+    def _initLogger(self):
         try:
             os.mkdir(f"{self._logs_path}/")
         except: pass
@@ -108,7 +117,7 @@ class MainWindow(QMainWindow):
         self._logger.addHandler(f_handler)
         self._logger.setLevel(logging.WARNING)
 
-    def _Initworksheet(self):
+    def _initWorksheet(self):
         self._row = 0
         self._column = 0
         self._row_single = 0
@@ -128,229 +137,257 @@ class MainWindow(QMainWindow):
         except:
             self._logger.warning("Error opening XLS")
 
-    def _SetApp(self):
+    def _setApp(self):
         self.setWindowTitle("PKE Setup")
 
-        self.settings = QSettings( 'ITELMA', 'PKE Setup' )
-        windowScreenGeometry = self.settings.value( "windowScreenGeometry" )
-        if windowScreenGeometry:
-            self.restoreGeometry(windowScreenGeometry)
+        # Restore window size and pos
+        self.settings = QSettings('ITELMA', 'PKE Setup')
+        window_screen_geometry = self.settings.value( "window_screen_geometry" )
+        if window_screen_geometry:
+            self.restoreGeometry(window_screen_geometry)
         else:
             self.resize(QSize(1400, 800))
 
-        # self.setStyleSheet("background-color: white;")
+        # Main layout of GUI
+        self._layout_main = QHBoxLayout()
 
-        self._layoutBig = QHBoxLayout()
-        self._layoutAnts = QHBoxLayout()
-        self._layoutAnts.setSpacing(0)
+        # Layout for ants keys data
+        self._layout_data = QHBoxLayout()
+        self._layout_data.setSpacing(0)
 
-        self._layoutWidgets = QVBoxLayout()
-        self._layoutWidgets.setSpacing(50)
+        # Layout for widgets on right side of GUI
+        self._layout_widgets = QVBoxLayout()
+        self._layout_widgets.setSpacing(50)
+
+        # Make widget layout fixed size and scrollable
         v_widget = QWidget()
-        v_widget.setLayout(self._layoutWidgets)    
-        scrollWidget = QScrollArea()
-        scrollWidget.setWidget(v_widget)
-        scrollWidget.setWidgetResizable(True) 
-        scrollWidget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)     
-        scrollWidget.setFixedWidth(400)   
+        v_widget.setLayout(self._layout_widgets)    
+        scroll_widget = QScrollArea()
+        scroll_widget.setWidget(v_widget)
+        scroll_widget.setWidgetResizable(True) 
+        scroll_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)     
+        scroll_widget.setFixedWidth(400)   
 
-        layoutWidgetsSpacer = QVBoxLayout()
-        layoutWidgetsSpacer.addItem(QSpacerItem(0, 25))
-        layoutWidgetsSpacer.addWidget(scrollWidget)
-        layoutWidgetsSpacer.addItem(QSpacerItem(0, 4))
+        # Add some spasers to make layout for ants keys data and
+        # layout for widgets same height
+        layout_widgets_spacer = QVBoxLayout()
+        layout_widgets_spacer.addItem(QSpacerItem(0, 25))
+        layout_widgets_spacer.addWidget(scroll_widget)
+        layout_widgets_spacer.addItem(QSpacerItem(0, 4))
         
-        self._layoutBig.addLayout(self._layoutAnts)
-        self._layoutBig.addLayout(layoutWidgetsSpacer)
+        self._layout_main.addLayout(self._layout_data)
+        self._layout_main.addLayout(layout_widgets_spacer)
 
-        self._createMenuBar()
+        self._createmenu_bar()
+        self._setDataTabs()
 
-        self._SetDataTabs()
-        self._SetCAN()
-        self._SetStatuses()
-        self._SetStartPolling()
-        self._SetLogs()
-        self._SetAntCheckBox()
-        self._SetKeyCheckBox()
-        self._SetKeyForMeasure()
-        self._SetAntCurrents()
-        self._SetStartDiag()
-        self._SetPowerMode()
+        # Order here == order in layout for widgets
+        self._setCAN()
+        self._setStatuses()
+        self._setStartPolling()
+        self._setLogs()
+        self._setAntCheckBox()
+        self._setKeyCheckBox()
+        self._setKeyForMeasure()
+        self._setAntCurrents()
+        self._setStartDiag()
+        self._setPowerMode()
 
-        self._PrintData(False)
+        # Init all widgets which doesn't have default text
+        self._resetData()
+        self._printData(False)
         
+        # Show GUI
         widget = QWidget()
-        widget.setLayout(self._layoutBig)
+        widget.setLayout(self._layout_main)
         self.setCentralWidget(widget)
-
         self.show()
 
-    def _createMenuBar(self):
+    def _createmenu_bar(self):
         # File
-        newAction = QAction("&New", self)
-        newAction.triggered.connect(self._newFile)
+        new_action = QAction("&New", self)
+        new_action.triggered.connect(self._newFile)
 
-        openAction = QAction("&Open...", self)
-        openAction.setShortcut("Ctrl+O")
-        openAction.triggered.connect(self._openFile)
+        open_action = QAction("&Open...", self)
+        open_action.setShortcut("Ctrl+O")
+        open_action.triggered.connect(self._openFile)
 
-        saveAction = QAction("&Save", self)
-        saveAction.setShortcut("Ctrl+S")
-        saveAction.triggered.connect(self._saveFile)
+        save_action = QAction("&Save", self)
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self._saveFile)
 
-        saveAsAction = QAction("&Save As...", self)
-        saveAsAction.triggered.connect(self._saveFileAs)
+        save_as_action = QAction("&Save As...", self)
+        save_as_action.triggered.connect(self._saveFileAs)
 
-        exitAction = QAction("&Exit", self)
-        aboutAction = QAction("&About", self)       
+        close_action = QAction("&Close", self)
+        close_action.triggered.connect(self._closeFile)
+
+        exit_action = QAction("&Exit", self)
+        about_action = QAction("&About", self)       
 
         # Logging
-        newLogAction = QAction("&New", self)
-        # newLogAction.triggered.connect(self._newFile)
+        new_log_action = QAction("&New", self)
+        # new_log_action.triggered.connect(self._newFile)
 
-        openLogAction = QAction("&Open...", self)
-        # openLogAction.triggered.connect(self._openFile)
+        open_log_action = QAction("&Open...", self)
+        # open_log_action.triggered.connect(self._openFile)
 
-        saveLogAction = QAction("&Save", self)
-        # saveLogAction.triggered.connect(self._saveFile)
+        save_log_action = QAction("&Save", self)
+        # save_log_action.triggered.connect(self._saveFile)
 
-        saveAsLogAction = QAction("&Save As...", self)
+        save_as_log_action = QAction("&Save As...", self)
 
-        menuBar = self.menuBar()
+        menu_bar = self.menuBar()
         # File menu
-        fileMenu = QMenu("&File", self)
-        menuBar.addMenu(fileMenu)
-        fileMenu.addAction(newAction)
-        fileMenu.addAction(openAction)
-        fileMenu.addAction(saveAction)
-        fileMenu.addAction(saveAsAction)
-        fileMenu.addSeparator()
-        fileMenu.addAction(exitAction)
+        file_menu = QMenu("&File", self)
+        menu_bar.addMenu(file_menu)
+        file_menu.addAction(new_action)
+        file_menu.addAction(open_action)
+        file_menu.addAction(save_action)
+        file_menu.addAction(save_as_action)
+        file_menu.addAction(close_action)
+        file_menu.addSeparator()
+        file_menu.addAction(exit_action)
         # Logs Menu 
-        loggingMenu = QMenu("&Logging", self)
-        menuBar.addMenu(loggingMenu)
-        loggingMenu.addAction(newLogAction)
-        loggingMenu.addAction(openLogAction)
-        loggingMenu.addAction(saveLogAction)
-        loggingMenu.addAction(saveAsLogAction)
+        logging_menu = QMenu("&Logging", self)
+        menu_bar.addMenu(logging_menu)
+        logging_menu.addAction(new_log_action)
+        logging_menu.addAction(open_log_action)
+        logging_menu.addAction(save_log_action)
+        logging_menu.addAction(save_as_log_action)
         # Help menu
-        helpMenu = menuBar.addMenu("&Help")
-        helpMenu.addAction(aboutAction)
+        help_menu = menu_bar.addMenu("&Help")
+        help_menu.addAction(about_action)
 
     def _showSaveWindow(self):
-        fileName = self._store_data_path
-        if fileName != '':
+        # You have to save file only if file path
+        # is choosen. Othrwise use saveNewFileWindow
+        filename = self._store_data_path
+        if filename != '':
             try:
+                # Check if data was changed or not
                 with open(f'{self._store_data_path}', 'r') as f:
                     to_json = json.load(f)
 
                 if (to_json['key_ants'] != self._generateJson() or
-                    to_json['points'] != self._interactiveData.generateJson()):
+                    to_json['points'] != self._points_painter.generateJson()):
 
-                    fileName = fileName[fileName.rfind('/')+1:]
-                    fileName = fileName[:-len('.pkesetup')]
-                    msgBox = QMessageBox()
-                    msgBox.setIcon(QMessageBox.Information)
-                    msgBox.setText(f"Do you want to save changes in \"{fileName}\"?")
-                    msgBox.setWindowTitle("Message")
-                    msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-                    # msgBox.buttonClicked.connect(msgButtonClick)
+                    # if data was changed, ask to save it
+                    filename = filename[filename.rfind('/')+1:]
+                    filename = filename[:-len('.pkesetup')]
+                    msg_box = QMessageBox()
+                    msg_box.setIcon(QMessageBox.Information)
+                    msg_box.setText(f"Do you want to save changes in \"{filename}\"?")
+                    msg_box.setWindowTitle("Message")
+                    msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
 
-                    returnValue = msgBox.exec()
-                    if returnValue == QMessageBox.Yes:
+                    return_value = msg_box.exec()
+                    if return_value == QMessageBox.Yes:
                         self._saveFile()
 
             except:
                 self._logger.info("no such file yet")
         
     def _showSaveNewFileWindow(self):
-        fileName = self._store_data_path
-        if fileName == '':
-            msgBox = QMessageBox()
-            msgBox.setIcon(QMessageBox.Information)
-            msgBox.setText(f"Do you want to create new file ?")
-            msgBox.setWindowTitle("Message")
-            msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            # msgBox.buttonClicked.connect(msgButtonClick)
+        filename = self._store_data_path
+        if filename == '':
+            msg_box = QMessageBox()
+            msg_box.setIcon(QMessageBox.Information)
+            msg_box.setText(f"Do you want to create new file ?")
+            msg_box.setWindowTitle("Message")
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
 
-            returnValue = msgBox.exec()
-            if returnValue == QMessageBox.Yes:
+            return_value = msg_box.exec()
+            if return_value == QMessageBox.Yes:
                 self._newFile()
 
     def _newFile(self):
+        # If user tries to create file with 
+        # another file opened and changed, ask to save it
         self._showSaveWindow()
+
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
-        fileName, _ = QFileDialog.getSaveFileName(self,"Create New File","","Pke Setup (*.pkesetup);;All Files (*)", options=options)
-        if fileName != '':
-            if fileName.find('.pkesetup') != len(fileName) - len('.pkesetup'):
-                fileName += '.pkesetup'
+        filename, _ = QFileDialog.getSaveFileName(self,"Create New File","","Pke Setup (*.pkesetup);;All Files (*)", options=options)
+        if filename != '':
+            if filename.find('.pkesetup') != len(filename) - len('.pkesetup'):
+                filename += '.pkesetup'
             
-            self._store_data_path = fileName
+            self._store_data_path = filename
             
-            for nCnt in range(0, len(self._widgetAntCheckBox)):
-                self._widgetAntCheckBox[nCnt].setChecked(True)
-
-            for nCnt in range(0, len(self._widgetKeyCheckBox)):
-                self._widgetKeyCheckBox[nCnt].setChecked(True)
-
-            self._widgetAuthCheckBox.setChecked(True)
-            self._widgetCurrSlider.setValue(32)
-
-            self._interactiveData.clearData()
+            # We created new file, so lets start from clear data 
+            self._resetData()
+            self._printData(False)
 
             self._saveFile()
 
-            self._PrintData(False)
-
-            fileName = fileName[fileName.rfind('/')+1:]
-            self.setWindowTitle(f"PKE Setup - {fileName[:-len('.pkesetup')]}")
+            filename = filename[filename.rfind('/')+1:]
+            self.setWindowTitle(f"PKE Setup - {filename[:-len('.pkesetup')]}")
     
     def _openFile(self):
         self._showSaveWindow()
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
-        fileName, _ = QFileDialog.getOpenFileName(self,"Open File", "","Pke Setup (*.pkesetup);;All Files (*)", options=options)
+        filename, _ = QFileDialog.getOpenFileName(self,"Open File", "","Pke Setup (*.pkesetup);;All Files (*)", options=options)
 
-        if fileName != "":
-            self._store_data_path = fileName
+        if filename != "":
+            self._store_data_path = filename
             self._restoreData()
 
-            self._PrintData(False)
+            self._printData(False)
 
-            fileName = fileName[fileName.rfind('/')+1:]
-            self.setWindowTitle(f"PKE Setup - {fileName[:-len('.pkesetup')]}")
+            filename = filename[filename.rfind('/')+1:]
+            self.setWindowTitle(f"PKE Setup - {filename[:-len('.pkesetup')]}")
+
+    def _resetData(self):
+        for nCnt in range(0, len(self._widget_ant_checkboxes)):
+            self._widget_ant_checkboxes[nCnt].setChecked(True)
+
+        for nCnt in range(0, len(self._widget_key_checkboxes)):
+            self._widget_key_checkboxes[nCnt].setChecked(True)
+
+        self._widget_auth_checkbox.setChecked(True)
+        self._widget_curr_slider.setValue(32)
+        self._widget_ant_curr_value_label.setText('Current: %.2f mA' % (15.625*(32)))
+        self._widget_pwr_mode_label.setText('Normal Mode')
+        self._widget_polling_amount_lineedit.setText('3')
+
+        for i in range(6):
+            self._widget_ant_imps_labels[i].setText(f'Ant {i+1}: {0} Ω')
+
+        self._points_painter.clearData()
 
     def _restoreData(self):
         try:
             with open(f'{self._store_data_path}') as f:
-                allAntsData = json.load(f)
+                all_ants_data = json.load(f)
 
-            keysAntsData = allAntsData['key_ants']
-            for nCnt in range(0, len(self._widgetAntCheckBox)):
-                if nCnt not in keysAntsData['ants']:
-                    self._widgetAntCheckBox[nCnt].setChecked(False)
+            keys_ants_data = all_ants_data['key_ants']
+            for nCnt in range(0, len(self._widget_ant_checkboxes)):
+                if nCnt not in keys_ants_data['ants']:
+                    self._widget_ant_checkboxes[nCnt].setChecked(False)
                 else:
-                    self._widgetAntCheckBox[nCnt].setChecked(True)
+                    self._widget_ant_checkboxes[nCnt].setChecked(True)
 
-            for nCnt in range(0, len(self._widgetKeyCheckBox)):
-                if nCnt not in keysAntsData['keys']:
-                    self._widgetKeyCheckBox[nCnt].setChecked(False)
+            for nCnt in range(0, len(self._widget_key_checkboxes)):
+                if nCnt not in keys_ants_data['keys']:
+                    self._widget_key_checkboxes[nCnt].setChecked(False)
                 else:
-                    self._widgetKeyCheckBox[nCnt].setChecked(True)
+                    self._widget_key_checkboxes[nCnt].setChecked(True)
 
-            if keysAntsData['auth'] == 0:
-                self._widgetAuthCheckBox.setChecked(False)
+            if keys_ants_data['auth'] == 0:
+                self._widget_auth_checkbox.setChecked(False)
             else:
-                self._widgetAuthCheckBox.setChecked(True)
+                self._widget_auth_checkbox.setChecked(True)
 
-            self._widgetPollingAmount.setText(str(keysAntsData['pollings_amount']))
+            self._widget_polling_amount_lineedit.setText(str(keys_ants_data['pollings_amount']))
 
-            val = keysAntsData['current']
-            self._widgetCurrSlider.setValue(val)
-            self._widAntCurrValue.setText('Current: %.2f mA' % (15.625*(val)))
-            self._CanWorker.setCurrent(val)
+            val = keys_ants_data['current']
+            self._widget_curr_slider.setValue(val)
+            self._widget_ant_curr_value_label.setText('Current: %.2f mA' % (15.625*(val)))
+            self._bus_worker.setCurrent(val)
 
-            self._widgetKeyForMeasure.setCurrentIndex(keysAntsData['key_for_calibration'])
+            self._widgetKeyForMeasure.setCurrentIndex(keys_ants_data['key_for_calibration'])
 
         except:
             self.setWindowTitle(f"PKE Setup - File Was deleted or moved")
@@ -374,7 +411,7 @@ class MainWindow(QMainWindow):
         with open(f'{self._store_data_path}', 'w') as f:
             json.dump(to_json, f)
 
-        self._interactiveData.saveData(self._store_data_path)
+        self._points_painter.saveData(self._store_data_path)
 
     def _generateJson(self):
         to_json = {
@@ -382,20 +419,20 @@ class MainWindow(QMainWindow):
             'keys': [],
             'auth': 0
         }
-        for nCnt in range(0, len(self._widgetAntCheckBox)):
-            if self._widgetAntCheckBox[nCnt].isChecked():
+        for nCnt in range(0, len(self._widget_ant_checkboxes)):
+            if self._widget_ant_checkboxes[nCnt].isChecked():
                 to_json['ants'].append(nCnt)
 
-        for nCnt in range(0, len(self._widgetKeyCheckBox)):
-            if self._widgetKeyCheckBox[nCnt].isChecked():
+        for nCnt in range(0, len(self._widget_key_checkboxes)):
+            if self._widget_key_checkboxes[nCnt].isChecked():
                 to_json['keys'].append(nCnt)
 
-        if self._widgetAuthCheckBox.isChecked(): 
+        if self._widget_auth_checkbox.isChecked(): 
             to_json['auth'] = 1
 
-        to_json['pollings_amount'] = int(self._widgetPollingAmount.text())
+        to_json['pollings_amount'] = int(self._widget_polling_amount_lineedit.text())
 
-        to_json['current'] = self._widgetCurrSlider.value()
+        to_json['current'] = self._widget_curr_slider.value()
 
         to_json['key_for_calibration'] = self._widgetKeyForMeasure.currentIndex()
 
@@ -404,16 +441,24 @@ class MainWindow(QMainWindow):
     def _saveFileAs(self):
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
-        fileName, _ = QFileDialog.getSaveFileName(self,"Save As...","","Pke Setup (*.pkesetup);;All Files (*)", options=options)
-        if fileName != '':
-            if fileName.find('.pkesetup') != len(fileName) - len('.pkesetup'):
-                fileName += '.pkesetup'
+        filename, _ = QFileDialog.getSaveFileName(self,"Save As...","","Pke Setup (*.pkesetup);;All Files (*)", options=options)
+        if filename != '':
+            if filename.find('.pkesetup') != len(filename) - len('.pkesetup'):
+                filename += '.pkesetup'
             
-            self._store_data_path = fileName
+            self._store_data_path = filename
             self._saveFile()
 
-            fileName = fileName[fileName.rfind('/')+1:]
-            self.setWindowTitle(f"PKE Setup - {fileName[:-len('.pkesetup')]}")
+            filename = filename[filename.rfind('/')+1:]
+            self.setWindowTitle(f"PKE Setup - {filename[:-len('.pkesetup')]}")
+
+    def _closeFile(self):
+        # If user tries to close file which was changed, ask to save it
+        self._showSaveWindow() 
+
+        self._store_data_path = ''
+        self._resetData()
+        self.setWindowTitle(f"PKE Setup")
 
     @property
     def _store_data_path(self):
@@ -421,53 +466,58 @@ class MainWindow(QMainWindow):
 
     @_store_data_path.setter
     def _store_data_path(self, path):
+        # Add here setpath functions of all objects
+        # which need it
         self._store_data_path_value = path
-        self._interactiveData.restoreData(path)
+        self._points_painter.restoreData(path)
 
-    def _SetDataTabs(self):
+    def _setDataTabs(self):
         self._tabs = QTabWidget()
         self._tabs.addTab(self._SetAntsData(), "RSSIs")
 
-        self._interactiveData = InteractiveData(askForPollingFunc = self._AskStartStopPolling)
-        self._tabs.addTab(self._interactiveData.SetUpCalibrationDesk(), "Calibration")
-        self._tabs.addTab(self._interactiveData.SetUpMeasureDesk(), "Measurement")
+        self._points_painter = PointsPainter(askForPollingFunc = self._askStartStopPollingCallback)
+        self._tabs.addTab(self._points_painter.SetUpCalibrationDesk(), "Calibration")
+        self._tabs.addTab(self._points_painter.SetUpMeasureDesk(), "Measurement")
         
-        self._layoutAnts.addWidget(self._tabs)
+        self._layout_data.addWidget(self._tabs)
 
-    def _SetAntsData(self): 
-        self._antFrames = []
-        self._keyFrames = []
-        smallVLayout = []
-        bigHLayout = QHBoxLayout()
-        bigHLayout.setSpacing(0)
-        for nAnt in range(self._AntAmount+1):
-            smallVLayout.append(QVBoxLayout())
-            self._antFrames.append(QFrame())
-            self._antFrames[nAnt].setLayout(smallVLayout[nAnt])
-            # self._antFrames[nAnt].setStyleSheet("border: 1px solid black")
-            smallVLayout[nAnt].setContentsMargins(0,0,0,0)
+    def _SetAntsData(self):
+        # We have one big horisontal layout (big_h_layout)
+        # with couple of columns storing in
+        # small_v_layouts array
+        self._ant_frames = []
+        self._key_frames = []
+        small_v_layout = []
+        big_h_layout = QHBoxLayout()
+        big_h_layout.setSpacing(0)
+        for nAnt in range(self._ant_amount+1):
+            small_v_layout.append(QVBoxLayout())
+            self._ant_frames.append(QFrame())
+            self._ant_frames[nAnt].setLayout(small_v_layout[nAnt])
+            # self._ant_frames[nAnt].setStyleSheet("border: 1px solid black")
+            small_v_layout[nAnt].setContentsMargins(0,0,0,0)
 
-            bigHLayout.addWidget(self._antFrames[nAnt])
+            big_h_layout.addWidget(self._ant_frames[nAnt])
             if nAnt == 0:
-                bigHLayout.setStretch(nAnt, 0)
+                big_h_layout.setStretch(nAnt, 0)
             else:
-                bigHLayout.setStretch(nAnt, 1)
+                big_h_layout.setStretch(nAnt, 1)
 
 
-        self._RSSI_Widgets = []
+        self._RSSI_widgets = []
         
         w = QLabel(f"")
         font = w.font()
         font.setPointSize(15)
         w.setFont(font)
-        smallVLayout[0].addWidget(w)
-        smallVLayout[0].setStretch(0, 0)
-        smallVLayout[0].setSpacing(0)
-        smallVLayout[0].setContentsMargins(0,0,0,0)
+        small_v_layout[0].addWidget(w)
+        small_v_layout[0].setStretch(0, 0)
+        small_v_layout[0].setSpacing(0)
+        small_v_layout[0].setContentsMargins(0,0,0,0)
 
-        keyFrameLocal = []
-        for nKey in range(self._KeyAmount):
-            keyFrameLocal.append(QFrame())
+        key_frame_local = []
+        for nKey in range(self._key_amount):
+            key_frame_local.append(QFrame())
 
             w = QLabel(f"Key {nKey+1}")
             font = w.font()
@@ -478,25 +528,25 @@ class MainWindow(QMainWindow):
             l = QVBoxLayout()
             l.addWidget(w)
             l.setSpacing(0)
-            keyFrameLocal[nKey].setLayout(l)
-            smallVLayout[0].addWidget(keyFrameLocal[nKey])
-            smallVLayout[0].setStretch(nKey+1, 1)
+            key_frame_local[nKey].setLayout(l)
+            small_v_layout[0].addWidget(key_frame_local[nKey])
+            small_v_layout[0].setStretch(nKey+1, 1)
 
-        self._keyFrames.append(keyFrameLocal)
+        self._key_frames.append(key_frame_local)
 
-        for nAnt in range(1, self._AntAmount+1):
+        for nAnt in range(1, self._ant_amount+1):
             w = QLabel(f"ANT {nAnt}")
             font = w.font()
             font.setPointSize(12)
             w.setFont(font)
             w.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-            smallVLayout[nAnt].addWidget(w)
-            smallVLayout[nAnt].setSpacing(0)
+            small_v_layout[nAnt].addWidget(w)
+            small_v_layout[nAnt].setSpacing(0)
 
             templist = []
-            keyFrameLocal = []
-            for nKey in range(self._KeyAmount):
-                keyFrameLocal.append(QFrame())
+            key_frame_local = []
+            for nKey in range(self._key_amount):
+                key_frame_local.append(QFrame())
 
                 k = QLabel()
                 k.setFont(QFont('Courier', 14))
@@ -514,634 +564,631 @@ class MainWindow(QMainWindow):
                 l = QVBoxLayout()
                 l.addWidget(groupbox)
                 l.setSpacing(0)
-                keyFrameLocal[nKey].setLayout(l)
+                key_frame_local[nKey].setLayout(l)
 
-                smallVLayout[nAnt].addWidget(keyFrameLocal[nKey])
-                smallVLayout[nAnt].setStretch(nKey+1, 1)
+                small_v_layout[nAnt].addWidget(key_frame_local[nKey])
+                small_v_layout[nAnt].setStretch(nKey+1, 1)
                 
                 templist.append(k)
 
-            self._keyFrames.append(keyFrameLocal)
+            self._key_frames.append(key_frame_local)
 
-            self._RSSI_Widgets.append(templist)
+            self._RSSI_widgets.append(templist)
 
         w = QWidget()
-        w.setLayout(bigHLayout)
+        w.setLayout(big_h_layout)
 
-        scrollAntsData = QScrollArea()
-        scrollAntsData.setWidget(w)
-        scrollAntsData.setWidgetResizable(True) 
+        scroll = QScrollArea()
+        scroll.setWidget(w)
+        scroll.setWidgetResizable(True) 
 
-        return scrollAntsData
+        return scroll
 
-    def _SetCAN(self):
-        CANgroupbox = QGroupBox("CAN")
-        font = CANgroupbox.font()
+    def _setCAN(self):
+        groupbox = QGroupBox("CAN")
+        font = groupbox.font()
         font.setPointSize(10)
-        CANgroupbox.setFont(font)
-        CANbox = QVBoxLayout()
-        CANbox.setSpacing(10)
-        CANgroupbox.setLayout(CANbox)
+        groupbox.setFont(font)
+        box = QVBoxLayout()
+        box.setSpacing(10)
+        groupbox.setLayout(box)
 
-        # Set USB port state Label
-        self._widgetUsbState = QLabel("Systec Disconnected")
-        font = self._widgetUsbState.font()
+        self._widget_usb_state_label = QLabel("Systec Disconnected")
+        font = self._widget_usb_state_label.font()
         font.setPointSize(12)
-        self._widgetUsbState.setFont(font)
-        self._widgetUsbState.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        CANbox.addWidget(self._widgetUsbState)
+        self._widget_usb_state_label.setFont(font)
+        self._widget_usb_state_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        box.addWidget(self._widget_usb_state_label)
 
-        # Set USB port connect button Label
-        self._widgetUsbConnect = QPushButton("Connect")
-        font = self._widgetUsbConnect.font()
+        self._widget_usb_connect_button = QPushButton("Connect")
+        font = self._widget_usb_connect_button.font()
         font.setPointSize(12)
-        self._widgetUsbConnect.setFont(font)
-        self._widgetUsbConnect.clicked.connect(self._BusInitHandler)
-        self._widgetUsbConnect.setFlat(False)
-        CANbox.addWidget(self._widgetUsbConnect)
+        self._widget_usb_connect_button.setFont(font)
+        self._widget_usb_connect_button.clicked.connect(self._busInitHandler)
+        self._widget_usb_connect_button.setFlat(False)
+        box.addWidget(self._widget_usb_connect_button)
 
-        # Set USB port connect button Label
-        widgetUsbDisConnect = QPushButton("Disconnect")
-        font = widgetUsbDisConnect.font()
+        widget_usb_dis_connect_button = QPushButton("Disconnect")
+        font = widget_usb_dis_connect_button.font()
         font.setPointSize(12)
-        widgetUsbDisConnect.setFont(font)
-        widgetUsbDisConnect.clicked.connect(self._BusDeInitHandler)
-        CANbox.addWidget(widgetUsbDisConnect)
+        widget_usb_dis_connect_button.setFont(font)
+        widget_usb_dis_connect_button.clicked.connect(self._busDeInitHandler)
+        box.addWidget(widget_usb_dis_connect_button)
 
-        # Set msg receiving Period Label
-        self._widgetCanMsgPeriod = QLabel()
-        font = self._widgetCanMsgPeriod.font()
+        self._widget_msg_period_label = QLabel()
+        font = self._widget_msg_period_label.font()
         font.setPointSize(12)
-        self._widgetCanMsgPeriod.setFont(font)
-        self._widgetCanMsgPeriod.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        CANbox.addWidget(self._widgetCanMsgPeriod)
+        self._widget_msg_period_label.setFont(font)
+        self._widget_msg_period_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        box.addWidget(self._widget_msg_period_label)
      
-        self._layoutWidgets.addWidget(CANgroupbox)
+        self._layout_widgets.addWidget(groupbox)
 
-    def _SetStatuses(self):
-        StatusGroupbox = QGroupBox("Statuses")
-        font = StatusGroupbox.font()
+    def _setStatuses(self):
+        groupbox = QGroupBox("Statuses")
+        font = groupbox.font()
         font.setPointSize(10)
-        StatusGroupbox.setFont(font)
-        StatusesBox = QVBoxLayout()
-        StatusesBox.setSpacing(15)
-        StatusGroupbox.setLayout(StatusesBox)
+        groupbox.setFont(font)
+        box = QVBoxLayout()
+        box.setSpacing(15)
+        groupbox.setLayout(box)
     
-        # Set last key with pressed button num
-        horLayout = QHBoxLayout()
-        self._widgetLastKeyNum = QLabel()
-        font = self._widgetLastKeyNum.font()
+        h_layout = QHBoxLayout()
+        self._widget_last_key_label = QLabel()
+        font = self._widget_last_key_label.font()
         font.setPointSize(12)
-        self._widgetLastKeyNum.setFont(font)
-        self._widgetLastKeyNum.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        self._widgetLastKeyNum.setMaximumWidth(280)
-        horLayout.addWidget(self._widgetLastKeyNum)
-        StatusesBox.addLayout(horLayout)
+        self._widget_last_key_label.setFont(font)
+        self._widget_last_key_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self._widget_last_key_label.setMaximumWidth(280)
+        h_layout.addWidget(self._widget_last_key_label)
+        box.addLayout(h_layout)
 
         self._last_key_background = 0
-        self._lastKeyAnimation = QSequentialAnimationGroup()
-        self._SetBackgroundAnimation(self._lastKeyAnimation, b"last_key_background")
+        self._last_key_animation = QSequentialAnimationGroup()
+        self._setBackgroundAnimation(self._last_key_animation, b"last_key_background")
 
-        # Set was auth OK or not
-        horLayout = QHBoxLayout()
-        self._widgetAuth = QLabel() 
-        font = self._widgetAuth.font()
+
+        h_layout = QHBoxLayout()
+        self._widget_auth_state_label = QLabel() 
+        font = self._widget_auth_state_label.font()
         font.setPointSize(12)
-        self._widgetAuth.setFont(font)
-        self._widgetAuth.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._widgetAuth.setMaximumWidth(150)
-        horLayout.addWidget(self._widgetAuth)
-        StatusesBox.addLayout(horLayout)
+        self._widget_auth_state_label.setFont(font)
+        self._widget_auth_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._widget_auth_state_label.setMaximumWidth(150)
+        h_layout.addWidget(self._widget_auth_state_label)
+        box.addLayout(h_layout)
         
         self._auth_background = 0
-        self._authAnimation = QSequentialAnimationGroup()
-        self._SetBackgroundAnimation(self._authAnimation, b"auth_background")
+        self._auth_state_animation = QSequentialAnimationGroup()
+        self._setBackgroundAnimation(self._auth_state_animation, b"auth_background")
 
-        horLayout = QHBoxLayout()
-
-        self._widgetAuthCheckBox = QCheckBox()
-        font = self._widgetAuthCheckBox.font()
+        h_layout = QHBoxLayout()
+        self._widget_auth_checkbox = QCheckBox()
+        font = self._widget_auth_checkbox.font()
         font.setPointSize(11)
-        self._widgetAuthCheckBox.setFont(font)
-        self._widgetAuthCheckBox.setChecked(True)
-        self._widgetAuthCheckBox.setText("Perform auth")
-        self._widgetAuthCheckBox.stateChanged.connect(self._performAuthState)
-        horLayout.addWidget(self._widgetAuthCheckBox)
+        self._widget_auth_checkbox.setFont(font)
+        self._widget_auth_checkbox.setChecked(True)
+        self._widget_auth_checkbox.setText("Perform auth")
+        self._widget_auth_checkbox.stateChanged.connect(self._performAuthStateHandler)
+        h_layout.addWidget(self._widget_auth_checkbox)
 
-        horLayout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        StatusesBox.addLayout(horLayout)
+        h_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        box.addLayout(h_layout)
 
-        self._layoutWidgets.addWidget(StatusGroupbox)
+        self._layout_widgets.addWidget(groupbox)
 
-    def _SetStartPolling(self):
-        StartPollingGroupbox = QGroupBox("Polling State")
-        font = StartPollingGroupbox.font()
+    def _setStartPolling(self):
+        groupbox = QGroupBox("Polling State")
+        font = groupbox.font()
         font.setPointSize(10)
-        StartPollingGroupbox.setFont(font)
-        StartPollingBox = QVBoxLayout()
-        StartPollingBox.setSpacing(15)
-        StartPollingGroupbox.setLayout(StartPollingBox)
+        groupbox.setFont(font)
+        box = QVBoxLayout()
+        box.setSpacing(15)
+        groupbox.setLayout(box)
     
-        widgetPollingsAmount = QLabel("Pollings Amount: ")
-        font = widgetPollingsAmount.font()
+        widget_pollings_amount_label = QLabel("Pollings Amount: ")
+        font = widget_pollings_amount_label.font()
         font.setPointSize(12)
-        widgetPollingsAmount.setFont(font)
-        widgetPollingsAmount.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        StartPollingBox.addWidget(widgetPollingsAmount)
+        widget_pollings_amount_label.setFont(font)
+        widget_pollings_amount_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        box.addWidget(widget_pollings_amount_label)
 
         validator = QIntValidator(1, 250)
-        self._widgetPollingAmount = QLineEdit("3")
-        self._widgetPollingAmount.setValidator(validator)
-        font = self._widgetPollingAmount.font()
+        self._widget_polling_amount_lineedit = QLineEdit()
+        self._widget_polling_amount_lineedit.setValidator(validator)
+        font = self._widget_polling_amount_lineedit.font()
         font.setPointSize(12)
-        self._widgetPollingAmount.setFont(font)
-        self._widgetPollingAmount.setMaximumHeight(200)
-        self._widgetPollingAmount.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        StartPollingBox.addWidget(self._widgetPollingAmount)
+        self._widget_polling_amount_lineedit.setFont(font)
+        self._widget_polling_amount_lineedit.setMaximumHeight(200)
+        self._widget_polling_amount_lineedit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        box.addWidget(self._widget_polling_amount_lineedit)
 
-        horLayout = QHBoxLayout()
-        self._widgetPollingsDone = QLabel()
-        font = self._widgetPollingsDone.font()
+        h_layout = QHBoxLayout()
+        self._widget_pollings_done_label = QLabel()
+        font = self._widget_pollings_done_label.font()
         font.setPointSize(12)
-        self._widgetPollingsDone.setFont(font)
-        self._widgetPollingsDone.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        self._widgetPollingsDone.setMaximumWidth(250)
-        horLayout.addWidget(self._widgetPollingsDone)
-        StartPollingBox.addLayout(horLayout)
+        self._widget_pollings_done_label.setFont(font)
+        self._widget_pollings_done_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self._widget_pollings_done_label.setMaximumWidth(250)
+        h_layout.addWidget(self._widget_pollings_done_label)
+        box.addLayout(h_layout)
 
         self._pollings_done_background = 0
-        self._pollingsDoneAnimation = QSequentialAnimationGroup()
-        self._SetBackgroundAnimation(self._pollingsDoneAnimation, b"pollings_done_background")
+        self._pollings_done_animation = QSequentialAnimationGroup()
+        self._setBackgroundAnimation(self._pollings_done_animation, b"pollings_done_background")
 
-        self._widgetStartPolling = QPushButton("Start Polling")
-        font = self._widgetStartPolling.font()
+        self._widget_start_polling_button = QPushButton("Start Polling")
+        font = self._widget_start_polling_button.font()
         font.setPointSize(12)
-        self._widgetStartPolling.setFont(font)
-        StartPollingBox.addWidget(self._widgetStartPolling)
-        self._widgetStartPolling.clicked.connect(self._StartPollingHandler)
+        self._widget_start_polling_button.setFont(font)
+        box.addWidget(self._widget_start_polling_button)
+        self._widget_start_polling_button.clicked.connect(self._startPollingHandler)
 
-        self._widgetStartRepeatPolling = QPushButton("Start Repeat Polling")
-        font = self._widgetStartRepeatPolling.font()
+        self._widget_start_repeat_polling_button = QPushButton("Start Repeat Polling")
+        font = self._widget_start_repeat_polling_button.font()
         font.setPointSize(12)
-        self._widgetStartRepeatPolling.setFont(font)
-        StartPollingBox.addWidget(self._widgetStartRepeatPolling)
-        self._widgetStartRepeatPolling.clicked.connect(self._StartRepeatPollingHandler)
+        self._widget_start_repeat_polling_button.setFont(font)
+        box.addWidget(self._widget_start_repeat_polling_button)
+        self._widget_start_repeat_polling_button.clicked.connect(self._startRepeatPollingHandler)
 
-        self._layoutWidgets.addWidget(StartPollingGroupbox)
+        self._layout_widgets.addWidget(groupbox)
 
-    def _SetStartDiag(self):
-        StartDiagGroupbox = QGroupBox("Ant impedances")
-        font = StartDiagGroupbox.font()
+    def _setStartDiag(self):
+        groupbox = QGroupBox("Ant impedances")
+        font = groupbox.font()
         font.setPointSize(10)
-        StartDiagGroupbox.setFont(font)
-        StartDiagBox = QVBoxLayout()
-        StartDiagBox.setSpacing(15)
-        StartDiagGroupbox.setLayout(StartDiagBox)
+        groupbox.setFont(font)
+        box = QVBoxLayout()
+        box.setSpacing(15)
+        groupbox.setLayout(box)
 
-        self._widgetAntImps = []
+        self._widget_ant_imps_labels = []
 
         inRow = 3
-        for nAnt in range(0, int(self._AntAmount/inRow+1)):
+        for nAnt in range(0, int(self._ant_amount/inRow+1)):
             h = QHBoxLayout()
             added = False
             for nCnt in range(inRow):
                 idx = nAnt*inRow + nCnt
-                if(idx < self._AntAmount):
-                    self._widgetAntImps.append(QLabel())
-                    font = self._widgetAntImps[idx].font()
+                if(idx < self._ant_amount):
+                    self._widget_ant_imps_labels.append(QLabel())
+                    font = self._widget_ant_imps_labels[idx].font()
                     font.setPointSize(11)
-                    self._widgetAntImps[idx].setFont(font)
-                    h.addWidget(self._widgetAntImps[idx])
+                    self._widget_ant_imps_labels[idx].setFont(font)
+                    h.addWidget(self._widget_ant_imps_labels[idx])
                     # h.setAlignment(Qt.AlignmentFlag.AlignCenter)
                     added = True
             if added:
-                StartDiagBox.addLayout(h)
+                box.addLayout(h)
                 added = False
 
         self._ant_imps_background = 0
         self._antImpsAnimation = QSequentialAnimationGroup()
-        self._SetBackgroundAnimation(self._antImpsAnimation, b"ant_imps_background")
+        self._setBackgroundAnimation(self._antImpsAnimation, b"ant_imps_background")
 
-        self._antImpsUpdate([0,0,0,0,0,0])
+        self._widget_diag_statuses_combobox = QComboBox()
+        box.addWidget(self._widget_diag_statuses_combobox)
 
-        self._widgetDiagStatuses = QComboBox()
-        StartDiagBox.addWidget(self._widgetDiagStatuses)
-
-        self._widgetAntDiag = QPushButton("Get ants impedance and calibrate")
-        font = self._widgetAntDiag.font()
+        self._widget_ant_diag_button = QPushButton("Get ants impedance and calibrate")
+        font = self._widget_ant_diag_button.font()
         font.setPointSize(12)
-        self._widgetAntDiag.setFont(font)
-        StartDiagBox.addWidget(self._widgetAntDiag)
-        self._widgetAntDiag.clicked.connect(self._PerformAntDiagHandler)
+        self._widget_ant_diag_button.setFont(font)
+        box.addWidget(self._widget_ant_diag_button)
+        self._widget_ant_diag_button.clicked.connect(self._antDiagHandler)
 
-        self._layoutWidgets.addWidget(StartDiagGroupbox)
+        self._layout_widgets.addWidget(groupbox)
 
-    def _SetPowerMode(self):
-        PowerModeGroupbox = QGroupBox("Power Mode")
-        font = PowerModeGroupbox.font()
+    def _setPowerMode(self):
+        groupbox = QGroupBox("Power Mode")
+        font = groupbox.font()
         font.setPointSize(10)
-        PowerModeGroupbox.setFont(font)
-        StatusesBox = QVBoxLayout()
-        StatusesBox.setSpacing(15)
-        PowerModeGroupbox.setLayout(StatusesBox)
+        groupbox.setFont(font)
+        box = QVBoxLayout()
+        box.setSpacing(15)
+        groupbox.setLayout(box)
 
         # Show Power Mode
-        self._widgetPwrMode = QLabel("Normal Mode")
-        font =  self._widgetPwrMode.font()
+        self._widget_pwr_mode_label = QLabel()
+        font =  self._widget_pwr_mode_label.font()
         font.setPointSize(12)
-        self._widgetPwrMode.setFont(font)
-        self._widgetPwrMode.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        StatusesBox.addWidget(self._widgetPwrMode)
+        self._widget_pwr_mode_label.setFont(font)
+        self._widget_pwr_mode_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        box.addWidget(self._widget_pwr_mode_label)
 
         # Set Change Power Mode button Label
-        widgetChMode = QPushButton("Change Power Mode")
-        font = widgetChMode.font()
+        widget_change_mode_button = QPushButton("Change Power Mode")
+        font = widget_change_mode_button.font()
         font.setPointSize(12)
-        widgetChMode.setFont(font)
-        StatusesBox.addWidget(widgetChMode)
-        widgetChMode.clicked.connect(self._ChangeModeHandler)
+        widget_change_mode_button.setFont(font)
+        box.addWidget(widget_change_mode_button)
+        widget_change_mode_button.clicked.connect(self._changeModeHandler)
 
-        self._layoutWidgets.addWidget(PowerModeGroupbox)
+        self._layout_widgets.addWidget(groupbox)
 
-    def _SetLogs(self):
+    def _setLogs(self):
         groupbox = QGroupBox("Logs")
         font = groupbox.font()
         font.setPointSize(10)
         groupbox.setFont(font)
-        Logbox = QVBoxLayout()
-        Logbox.setSpacing(10)
-        groupbox.setLayout(Logbox)
+        box = QVBoxLayout()
+        box.setSpacing(10)
+        groupbox.setLayout(box)
     
         # Get log msg
-        self._widgetLogMsg = QLineEdit()
-        font = self._widgetLogMsg.font()
+        self._widget_log_msg_lineedit = QLineEdit()
+        font = self._widget_log_msg_lineedit.font()
         font.setPointSize(12)
-        self._widgetLogMsg.setFont(font)
-        self._widgetLogMsg.setMaximumHeight(200)
-        Logbox.addWidget(self._widgetLogMsg)
+        self._widget_log_msg_lineedit.setFont(font)
+        self._widget_log_msg_lineedit.setMaximumHeight(200)
+        box.addWidget(self._widget_log_msg_lineedit)
 
         # Set button to send log
-        widgetAddLog = QPushButton("Add LOG")
-        font = widgetAddLog.font()
+        widget_add_log_button = QPushButton("Add LOG")
+        font = widget_add_log_button.font()
         font.setPointSize(12)
-        widgetAddLog.setFont(font)
-        Logbox.addWidget(widgetAddLog)
-        widgetAddLog.clicked.connect(self._PrintSigleLog)
+        widget_add_log_button.setFont(font)
+        box.addWidget(widget_add_log_button)
+        widget_add_log_button.clicked.connect(self._addLogHandler)
 
-        self._layoutWidgets.addWidget(groupbox)
+        self._layout_widgets.addWidget(groupbox)
 
-    def _SetAntCurrents(self):
+    def _setAntCurrents(self):
         groupbox = QGroupBox("Ants currents")
         font = groupbox.font()
         font.setPointSize(10)
         groupbox.setFont(font)
-        Currbox = QVBoxLayout()
-        Currbox.setSpacing(10)
-        groupbox.setLayout(Currbox)
+        box = QVBoxLayout()
+        box.setSpacing(10)
+        groupbox.setLayout(box)
     
-        self._widgetCurrSlider = QSlider(Qt.Horizontal)
-        self._widgetCurrSlider.setRange(1, 0x40)
-        self._widgetCurrSlider.setValue(0x20)
-        self._widgetCurrSlider.setSingleStep(1)
-        self._widgetCurrSlider.setPageStep(2)
-        self._widgetCurrSlider.setTickInterval(0x1F)
-        self._widgetCurrSlider.setTickPosition(QSlider.TicksBelow)
-        self._widgetCurrSlider.valueChanged.connect(self._currentChangedHandler)
-        Currbox.addWidget(self._widgetCurrSlider)
+        self._widget_curr_slider = QSlider(Qt.Horizontal)
+        self._widget_curr_slider.setRange(1, 0x40)
+        self._widget_curr_slider.setValue(0x20)
+        self._widget_curr_slider.setSingleStep(1)
+        self._widget_curr_slider.setPageStep(2)
+        self._widget_curr_slider.setTickInterval(0x1F)
+        self._widget_curr_slider.setTickPosition(QSlider.TicksBelow)
+        self._widget_curr_slider.valueChanged.connect(self._currentChangedHandler)
+        box.addWidget(self._widget_curr_slider)
 
-        self._widAntCurrValue = QLabel()
-        font = self._widAntCurrValue.font()
+        self._widget_ant_curr_value_label = QLabel()
+        font = self._widget_ant_curr_value_label.font()
         font.setPointSize(12)
-        self._widAntCurrValue.setFont(font)
-        self._widAntCurrValue.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        Currbox.addWidget(self._widAntCurrValue)
-        self._currentChangedHandler()        
+        self._widget_ant_curr_value_label.setFont(font)
+        self._widget_ant_curr_value_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        box.addWidget(self._widget_ant_curr_value_label)     
 
-        self._layoutWidgets.addWidget(groupbox)
+        self._layout_widgets.addWidget(groupbox)
 
-    def _SetAntCheckBox(self):
+    def _setAntCheckBox(self):
         groupbox = QGroupBox("Ants for polling")
         font = groupbox.font()
         font.setPointSize(10)
         groupbox.setFont(font)
-        Choosebox = QVBoxLayout()
-        Choosebox.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        Choosebox.setSpacing(15)
-        groupbox.setLayout(Choosebox)
+        box = QVBoxLayout()
+        box.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        box.setSpacing(15)
+        groupbox.setLayout(box)
     
-
-        self._widgetAntCheckBox = []
+        self._widget_ant_checkboxes = []
 
         inRow = 3
-        for nAnt in range(0, int(self._AntAmount/inRow+1)):
+        for nAnt in range(0, int(self._ant_amount/inRow+1)):
             h = QHBoxLayout()
             added = False
             for nCnt in range(inRow):
                 idx = nAnt*inRow + nCnt
-                if(idx < self._AntAmount):
-                    self._widgetAntCheckBox.append(QCheckBox())
-                    font = self._widgetAntCheckBox[idx].font()
+                if(idx < self._ant_amount):
+                    self._widget_ant_checkboxes.append(QCheckBox())
+                    font = self._widget_ant_checkboxes[idx].font()
                     font.setPointSize(11)
-                    self._widgetAntCheckBox[idx].setFont(font)
-                    self._widgetAntCheckBox[idx].setChecked(True)
-                    self._widgetAntCheckBox[idx].stateChanged.connect(self._updateAntMask)
-                    self._widgetAntCheckBox[idx].setText(f"Ant {idx+1}")
-                    h.addWidget(self._widgetAntCheckBox[idx])
+                    self._widget_ant_checkboxes[idx].setFont(font)
+                    self._widget_ant_checkboxes[idx].setChecked(True)
+                    self._widget_ant_checkboxes[idx].stateChanged.connect(self._updateAntMask)
+                    self._widget_ant_checkboxes[idx].setText(f"Ant {idx+1}")
+                    h.addWidget(self._widget_ant_checkboxes[idx])
                     h.setAlignment(Qt.AlignmentFlag.AlignLeft)
                     added = True
 
             if added:
-                Choosebox.addLayout(h)
+                box.addLayout(h)
                 added = False
 
-        self._layoutWidgets.addWidget(groupbox)
+        self._layout_widgets.addWidget(groupbox)
 
-    def _SetKeyCheckBox(self):
+    def _setKeyCheckBox(self):
         groupbox = QGroupBox("Keys for polling")
         font = groupbox.font()
         font.setPointSize(10)
         groupbox.setFont(font)
-        Choosebox = QVBoxLayout()
-        Choosebox.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        Choosebox.setSpacing(15)
-        groupbox.setLayout(Choosebox)
+        box = QVBoxLayout()
+        box.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        box.setSpacing(15)
+        groupbox.setLayout(box)
     
-        self._widgetKeyCheckBox = []
+        self._widget_key_checkboxes = []
 
         inRow = 3
-        for nKey in range(0, int(self._KeyAmount/inRow+1)):
+        for nKey in range(0, int(self._key_amount/inRow+1)):
             h = QHBoxLayout()
             added = False
             for nCnt in range(inRow):
                 idx = nKey*inRow + nCnt
-                if(idx < self._KeyAmount):
-                    self._widgetKeyCheckBox.append(QCheckBox())
-                    font = self._widgetKeyCheckBox[idx].font()
+                if(idx < self._key_amount):
+                    self._widget_key_checkboxes.append(QCheckBox())
+                    font = self._widget_key_checkboxes[idx].font()
                     font.setPointSize(11)
-                    self._widgetKeyCheckBox[idx].setFont(font)
-                    self._widgetKeyCheckBox[idx].setChecked(True)
-                    self._widgetKeyCheckBox[idx].stateChanged.connect(self._updateKeyMask)
-                    self._widgetKeyCheckBox[idx].setText(f"Key {idx+1}")
-                    h.addWidget(self._widgetKeyCheckBox[idx])
+                    self._widget_key_checkboxes[idx].setFont(font)
+                    self._widget_key_checkboxes[idx].setChecked(True)
+                    self._widget_key_checkboxes[idx].stateChanged.connect(self._updateKeyMask)
+                    self._widget_key_checkboxes[idx].setText(f"Key {idx+1}")
+                    h.addWidget(self._widget_key_checkboxes[idx])
                     h.setAlignment(Qt.AlignmentFlag.AlignLeft)
                     added = True
                 
             if added:
-                Choosebox.addLayout(h)
+                box.addLayout(h)
                 added = False
 
-        self._layoutWidgets.addWidget(groupbox)
+        self._layout_widgets.addWidget(groupbox)
 
-    def _SetKeyForMeasure(self):
+    def _setKeyForMeasure(self):
         groupbox = QGroupBox("Key for calibration")
         font = groupbox.font()
         font.setPointSize(10)
         groupbox.setFont(font)
-        Choosebox = QVBoxLayout()
-        Choosebox.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        Choosebox.setSpacing(15)
-        groupbox.setLayout(Choosebox)
+        box = QVBoxLayout()
+        box.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        box.setSpacing(15)
+        groupbox.setLayout(box)
 
         self._widgetKeyForMeasure = QComboBox()
-        for nKey in range(0, self._KeyAmount):
+        for nKey in range(0, self._key_amount):
             self._widgetKeyForMeasure.addItem(f"Key {nKey+1}")
 
-        Choosebox.addWidget(self._widgetKeyForMeasure)
+        box.addWidget(self._widgetKeyForMeasure)
 
-        self._layoutWidgets.addWidget(groupbox)
+        self._layout_widgets.addWidget(groupbox)
 
-    def _CanInit(self):
+    def _busInit(self):
         # Create a QThread and Worker object
-        self._CanThread = QThread()
-        self._CanWorker = CanSendRecv(self._AntAmount, self._KeyAmount)
-        self._CanWorker.moveToThread(self._CanThread)
+        self._bus_thread = QThread()
+        self._bus_worker = CanSendRecv(self._ant_amount, self._key_amount)
+        self._bus_worker.moveToThread(self._bus_thread)
 
         # Connect signals and slots
-        self._CanThread.started.connect(self._CanWorker.Start)
-        self._CanWorker.canInited.connect(self._BusInitedCallback)
-        self._CanWorker.canDeInited.connect(self._BusDeInitedCallback)
-        self._CanWorker.keyNumIdReceived.connect(self._LastKeyIdUpdate)
-        self._CanWorker.keyAuthReceived.connect(self._LastAuthUpdate)
-        self._CanWorker.canReceivedAll.connect(self._PrintData)
-        self._CanWorker.antImpsReceived.connect(self._antImpsUpdate)
-        self._CanWorker.antDiagStateReceived.connect(self._antDiagUpdate)
+        self._bus_thread.started.connect(self._bus_worker.start)
+        self._bus_worker.canInited.connect(self._busInitedCallback)
+        self._bus_worker.canDeInited.connect(self._busDeInitedCallback)
+        self._bus_worker.keyNumIdReceived.connect(self._lastKeyUpdateCallback)
+        self._bus_worker.keyAuthReceived.connect(self._lastAuthUpdateCallback)
+        self._bus_worker.canReceivedAll.connect(self._printDataCallback)
+        self._bus_worker.antImpsReceived.connect(self._antImpsUpdateCallback)
+        self._bus_worker.antDiagStateReceived.connect(self._antDiagUpdateCallback)
         
-        self._CanThread.start()
+        self._bus_thread.start()
 
-    def _BusInitHandler(self):
-        self._widgetUsbConnect.setFlat(True)
-        self._CanWorker.BusInit()
-        self._widgetUsbConnect.setFlat(False)
+    def _busInitHandler(self):
+        self._widget_usb_connect_button.setFlat(True)
+        self._bus_worker.BusInit()
+        self._widget_usb_connect_button.setFlat(False)
 
-    def _BusDeInitHandler(self):
-        self._StopPolling()
-        self._CanWorker.BusDeInit()
+    def _busDeInitHandler(self):
+        self._stopPolling()
+        self._bus_worker.BusDeInit()
 
-    def _BusInitedCallback(self):
-        self._widgetUsbState.setText("Systec Connected")
-        self._widgetUsbState.setStyleSheet("color: green;")
+    def _busInitedCallback(self):
+        self._widget_usb_state_label.setText("Systec Connected")
+        self._widget_usb_state_label.setStyleSheet("color: green;")
 
-    def _BusDeInitedCallback(self):
-        self._widgetUsbState.setText("Systec Disconnected")
-        self._widgetUsbState.setStyleSheet("color: black;")
-        self._PrintData(False)
+    def _busDeInitedCallback(self):
+        self._widget_usb_state_label.setText("Systec Disconnected")
+        self._widget_usb_state_label.setStyleSheet("color: black;")
+        self._printData(False)
         
     def _updateAntMask(self):
-        AntMask = 0
-        for nCnt in range(0, len(self._widgetAntCheckBox)):
-            if self._widgetAntCheckBox[nCnt].isChecked():
-                AntMask |= 1 << nCnt
-                self._antFrames[nCnt+1].show()
+        ant_mask = 0
+        for nCnt in range(0, len(self._widget_ant_checkboxes)):
+            if self._widget_ant_checkboxes[nCnt].isChecked():
+                ant_mask |= 1 << nCnt
+                self._ant_frames[nCnt+1].show()
             else:
-                self._antFrames[nCnt+1].hide()
+                self._ant_frames[nCnt+1].hide()
 
-        self._CanWorker.SetAntMask(AntMask)
+        self._bus_worker.SetAntMask(ant_mask)
 
     def _updateKeyMask(self):
-        KeyMask = 0
-        for nAnt in range(0, len(self._widgetAntCheckBox)+1):
-            for nKey in range(0, len(self._widgetKeyCheckBox)):
-                if self._widgetKeyCheckBox[nKey].isChecked():
-                    KeyMask |= 1 << nKey
-                    self._keyFrames[nAnt][nKey].show()
+        key_mask = 0
+        for nAnt in range(0, len(self._widget_ant_checkboxes)+1):
+            for nKey in range(0, len(self._widget_key_checkboxes)):
+                if self._widget_key_checkboxes[nKey].isChecked():
+                    key_mask |= 1 << nKey
+                    self._key_frames[nAnt][nKey].show()
                 else:
-                    self._keyFrames[nAnt][nKey].hide()
+                    self._key_frames[nAnt][nKey].hide()
         
-        self._CanWorker.SetKeyMask(KeyMask)
+        self._bus_worker.SetKeyMask(key_mask)
 
-    def _LastKeyIdUpdate(self, lastPressedKey):
-        self._widgetLastKeyNum.setText(f"Last Key Pressed Num: {lastPressedKey}\t\t")
-        self._animationStart(self._lastKeyAnimation)
+    def _lastKeyUpdateCallback(self, lastPressedKey):
+        self._widget_last_key_label.setText(f"Last Key Pressed Num: {lastPressedKey}\t\t")
+        self._animationStart(self._last_key_animation)
 
-    def _LastAuthUpdate(self, authStatus):
-        if self._widgetAuthCheckBox.isChecked() and self._pollingInProgress:
-            if authStatus:
-                self._authStatus = True
-                self._widgetAuth.setText(f'Auth: OK')
+    def _lastAuthUpdateCallback(self, auth_status):
+        if self._widget_auth_checkbox.isChecked() and self._is_polling_in_progress:
+            if auth_status:
+                self._auth_status = True
+                self._widget_auth_state_label.setText(f'Auth: OK')
             else:
-                self._authStatus = False
-                self._widgetAuth.setText(f'Auth: Fail')
+                self._auth_status = False
+                self._widget_auth_state_label.setText(f'Auth: Fail')
 
-            if self._authAnimation.state() != QPropertyAnimation.Running:
-                self._animationStart(self._authAnimation)
+            if self._auth_state_animation.state() != QPropertyAnimation.Running:
+                self._animationStart(self._auth_state_animation)
 
-    def _antImpsUpdate(self, imps: list):
-        self._animationStart(self._antImpsAnimation)
+    def _antImpsUpdateCallback(self, imps: list):
         for i in range(len(imps)):
-            self._widgetAntImps[i].setText(f'Ant {i+1}: {imps[i]} Ω')
+            self._widget_ant_imps_labels[i].setText(f'Ant {i+1}: {imps[i]} Ω')
+            
+        self._animationStart(self._antImpsAnimation)
 
-    def _antDiagUpdate(self, statuses: list):
-        self._widgetDiagStatuses.clear()
-        self._widgetDiagStatuses.addItems(statuses)                            
+    def _antDiagUpdateCallback(self, statuses: list):
+        self._widget_diag_statuses_combobox.clear()
+        self._widget_diag_statuses_combobox.addItems(statuses)                            
 
     def _currentChangedHandler(self):
-        val = self._widgetCurrSlider.value()
-        self._widAntCurrValue.setText('Current: %.2f mA' % (15.625*(val)))
-        try:
-            self._CanWorker.setCurrent(val)
-        except: pass
+        val = self._widget_curr_slider.value()
+        self._widget_ant_curr_value_label.setText('Current: %.2f mA' % (15.625*(val)))
+        self._bus_worker.setCurrent(val)
 
-    def _ChangeModeHandler(self):
-        if self._PowerMode == 0:
-            self._PowerMode = 1 #PowerDown
-            self._widgetPwrMode.setText("Power Down")
+    def _changeModeHandler(self):
+        if self._power_mode == 0:
+            self._power_mode = 1 #PowerDown
+            self._widget_pwr_mode_label.setText("Power Down")
         else:
-            self._PowerMode = 0 #Normal Mode
-            self._widgetPwrMode.setText("Normal Mode")
+            self._power_mode = 0 #Normal Mode
+            self._widget_pwr_mode_label.setText("Normal Mode")
         
-        self._CanWorker.SetPowerMode(self._PowerMode)
+        self._bus_worker.SetPowerMode(self._power_mode)
 
-    def _StartPollingHandler(self):
+    def _startPollingHandler(self):
         self._updateKeyMask()
-        self._StartPolling()
 
-    def _StartPolling(self):
-        if(self._widgetStartPolling.text() == "Stop Polling"):
-            self._StopPolling()
-            return
+        if(self._widget_start_polling_button.text() == "Stop Polling"):
+            self._stopPolling()
+        else:
+            self._startPolling()
 
-        self._pollingInProgress = True
-        self._PollingsNeeded = int(self._widgetPollingAmount.text())
-        if(self._PollingsNeeded <= 0):
-            self._PollingsNeeded = 1
-            self._widgetPollingAmount.setText(str(self._PollingsNeeded))
-        elif(self._PollingsNeeded >= 250):
-            self._PollingsNeeded = 250
-            self._widgetPollingAmount.setText(str(self._PollingsNeeded))
+    def _startPolling(self):
+        self._is_polling_in_progress = True
+        self._pollings_needed = int(self._widget_polling_amount_lineedit.text())
+        
+        if(self._pollings_needed <= 0):
+            self._pollings_needed = 1
+            self._widget_polling_amount_lineedit.setText(str(self._pollings_needed))
+        elif(self._pollings_needed >= 250):
+            self._pollings_needed = 250
+            self._widget_polling_amount_lineedit.setText(str(self._pollings_needed))
 
-        self._widgetStartPolling.setText("Stop Polling")
-        self._widgetStartRepeatPolling.setText("Start Repeat Polling")
-        self._PollingsDone = 0
-        self._animationStop(self._pollingsDoneAnimation)
-        self._widgetPollingsDone.setText(f"Target: {self._PollingsNeeded}; Done: {self._PollingsDone}")
-        self._widgetPollingsDone.setStyleSheet("color: black;")
+        self._widget_start_polling_button.setText("Stop Polling")
+        self._widget_start_repeat_polling_button.setText("Start Repeat Polling")
+        self._pollings_done = 0
+        self._animationStop(self._pollings_done_animation)
+        self._widget_pollings_done_label.setText(f"Target: {self._pollings_needed}; Done: {self._pollings_done}")
+        self._widget_pollings_done_label.setStyleSheet("color: black;")
 
-        self._CanWorker.StartPoll(self._PollingsNeeded)
+        self._bus_worker.StartPoll(self._pollings_needed)
 
-    def _StopPolling(self):
-        self._pollingInProgress = False
-        self._widgetStartPolling.setText("Start Polling")
-        self._widgetStartRepeatPolling.setText("Start Repeat Polling")
-        self._PollingsDone = 0
-        self._animationStop(self._pollingsDoneAnimation)
-        self._widgetPollingsDone.setText(f"Target: - ; Done: -")
-        self._widgetPollingsDone.setStyleSheet("color: black;")
-        self._PollingsNeeded = 0
+    def _stopPolling(self):
+        self._is_polling_in_progress = False
+        self._widget_start_polling_button.setText("Start Polling")
+        self._widget_start_repeat_polling_button.setText("Start Repeat Polling")
+        self._pollings_done = 0
+        self._animationStop(self._pollings_done_animation)
+        self._widget_pollings_done_label.setText(f"Target: - ; Done: -")
+        self._widget_pollings_done_label.setStyleSheet("color: black;")
+        self._pollings_needed = 0
 
-        self._CanWorker.StartPoll(255)
+        # Command to stop poll
+        self._bus_worker.StartPoll(255)
 
-    def _StartRepeatPollingHandler(self):
-        if(self._widgetStartRepeatPolling.text() == "Stop Repeat Polling"):
-            self._StopPolling()
+    def _startRepeatPollingHandler(self):
+        if(self._widget_start_repeat_polling_button.text() == "Stop Repeat Polling"):
+            self._stopPolling()
             return
         
-        self._pollingInProgress = True
-        self._widgetStartPolling.setText("Start Polling")
-        self._widgetStartRepeatPolling.setText("Stop Repeat Polling")
-        self._PollingsDone = 0
-        self._animationStop(self._pollingsDoneAnimation)
-        self._widgetPollingsDone.setText(f"Target: ∞ ; Done: - ")
-        self._widgetPollingsDone.setStyleSheet("color: black;")
-        self._PollingsNeeded = 0
+        self._is_polling_in_progress = True
+        self._widget_start_polling_button.setText("Start Polling")
+        self._widget_start_repeat_polling_button.setText("Stop Repeat Polling")
+        self._pollings_done = 0
+        self._animationStop(self._pollings_done_animation)
+        self._widget_pollings_done_label.setText(f"Target: ∞ ; Done: - ")
+        self._widget_pollings_done_label.setStyleSheet("color: black;")
+        self._pollings_needed = 0
 
-        self._CanWorker.StartPoll(254)
+        self._bus_worker.StartPoll(254)
 
-    def _PerformAntDiagHandler(self):
-        self._CanWorker.performDiag()
+    def _antDiagHandler(self):
+        self._bus_worker.performDiag()
 
-    def _performAuthState(self):
-        if self._widgetAuthCheckBox.isChecked():
-            self._CanWorker.SetAuthMode(1)
+    def _performAuthStateHandler(self):
+        if self._widget_auth_checkbox.isChecked():
+            self._bus_worker.SetAuthMode(1)
         else:
-            self._CanWorker.SetAuthMode(0)
-            self._animationStop(self._authAnimation)
-            self._widgetAuth.setText(f'Auth: None\t')
-            self._widgetAuth.setStyleSheet("color: black;")
+            self._bus_worker.SetAuthMode(0)
+            self._animationStop(self._auth_state_animation)
+            self._widget_auth_state_label.setText(f'Auth: None\t')
+            self._widget_auth_state_label.setStyleSheet("color: black;")
 
-    def _AskStartStopPolling(self, start: bool = False):
-        if(self._widgetStartPolling.text() == "Stop Polling"):
-            self._StopPolling()
+    def _askStartStopPollingCallback(self, start: bool = False):
+        # We have to start polling anyway, so if it's in process
+        # then stop it and start again
+        if(self._widget_start_polling_button.text() == "Stop Polling"):
+            self._stopPolling()
 
         if start:
             keyNum = self._widgetKeyForMeasure.currentIndex()
-            self._CanWorker.SetKeyMask(1 << keyNum)
-            self._StartPolling()
+            self._bus_worker.SetKeyMask(1 << keyNum)
+            self._startPolling()
 
-    def _PrintData(self, res: bool):
+    def _printDataCallback(self):
+        self._printData(True)
+
+    def _printData(self, res: bool):
         if not res:
-            self._widgetCanMsgPeriod.setText("Msg Period: 0 ms")
-            self._animationStop(self._authAnimation)
-            self._widgetAuth.setText(f'Auth: None\t')
-            self._widgetAuth.setStyleSheet("color: black;")
-            self._widgetLastKeyNum.setText(f"Last Key Pressed Num: None\t")
-            Data = np.zeros((((self._AntAmount, self._KeyAmount, 3))), dtype=int)
-            self._animationStop(self._pollingsDoneAnimation)
-            self._widgetPollingsDone.setText(f"Target: - ; Done: -")
-            self._PollingsDone = 0
+            # Just set all widgets to standart state
+            self._widget_msg_period_label.setText("Msg Period: 0 ms")
+            self._animationStop(self._auth_state_animation)
+            self._widget_auth_state_label.setText(f'Auth: None\t')
+            self._widget_auth_state_label.setStyleSheet("color: black;")
+            self._widget_last_key_label.setText(f"Last Key Pressed Num: None\t")
+            Data = np.zeros((((self._ant_amount, self._key_amount, 3))), dtype=int)
+            self._animationStop(self._pollings_done_animation)
+            self._widget_pollings_done_label.setText(f"Target: - ; Done: -")
+            self._pollings_done = 0
 
         else:
-            Data = self._CanWorker.Data
-            self._widgetCanMsgPeriod.setText(f"Msg Period: {int(self._CanWorker.TimeBetweenMsgs)} ms")
+            Data = self._bus_worker.Data
+            self._widget_msg_period_label.setText(f"Msg Period: {int(self._bus_worker.TimeBetweenMsgs)} ms")
 
-            self._animationStart(self._pollingsDoneAnimation)
+            self._animationStart(self._pollings_done_animation)
             isPollDone = False
-            if (self._PollingsNeeded != 0 and self._pollingInProgress):
-                self._PollingsDone += 1
-                self._widgetPollingsDone.setText(f"Target: {self._PollingsNeeded}; Done: {self._PollingsDone}")
+            if (self._pollings_needed != 0 and self._is_polling_in_progress):
+                self._pollings_done += 1
+                self._widget_pollings_done_label.setText(f"Target: {self._pollings_needed}; Done: {self._pollings_done}")
         
-                if (self._PollingsDone == self._PollingsNeeded):
-                    self._animationStop(self._pollingsDoneAnimation)
-                    self._widgetPollingsDone.setStyleSheet("color: green;")
+                if (self._pollings_done == self._pollings_needed):
+                    self._animationStop(self._pollings_done_animation)
+                    self._widget_pollings_done_label.setStyleSheet("color: green;")
                     isPollDone = True
-                    self._widgetStartPolling.setText("Start Polling")
+                    self._widget_start_polling_button.setText("Start Polling")
 
 
-            elif (self._pollingInProgress):
-                self._PollingsDone += 1
-                if self._PollingsDone > 250:
-                    self._PollingsDone = 1
+            elif (self._is_polling_in_progress):
+                self._pollings_done += 1
+                if self._pollings_done > 250:
+                    self._pollings_done = 1
                     
-                self._widgetPollingsDone.setText(f"Target: ∞ ; Done: - ")
+                self._widget_pollings_done_label.setText(f"Target: ∞ ; Done: - ")
+
 
             keyNum = self._widgetKeyForMeasure.currentIndex()
-            dataForCalibration = np.zeros((((self._AntAmount+1, 3))), dtype=int)
+            dataForCalibration = np.zeros((((self._ant_amount+1, 3))), dtype=int)
 
-            for nAnt in range(0, self._AntAmount):
+            for nAnt in range(0, self._ant_amount):
                 dataForCalibration[nAnt][0] = Data[nAnt][keyNum][0]
                 dataForCalibration[nAnt][1] = Data[nAnt][keyNum][1]
                 dataForCalibration[nAnt][2] = Data[nAnt][keyNum][2]
 
+            self._points_painter.RememberData(dataForCalibration, keyNum, self._auth_status, isPollDone)
+            self._printLogData()
 
-            self._interactiveData.RememberData(dataForCalibration, keyNum, self._authStatus, isPollDone)
-            self._PrintLogData()
-
-        for nAnt in range(self._AntAmount):
-            for nKey in range(self._KeyAmount):
-                self._RSSI_Widgets[nAnt][nKey].setText(f"X: {' '*(3-len(str(Data[nAnt][nKey][0])))}{Data[nAnt][nKey][0]}\n" +
+        for nAnt in range(self._ant_amount):
+            for nKey in range(self._key_amount):
+                self._RSSI_widgets[nAnt][nKey].setText(f"X: {' '*(3-len(str(Data[nAnt][nKey][0])))}{Data[nAnt][nKey][0]}\n" +
                                                        f"Y: {' '*(3-len(str(Data[nAnt][nKey][1])))}{Data[nAnt][nKey][1]}\n" +
                                                        f"Z: {' '*(3-len(str(Data[nAnt][nKey][2])))}{Data[nAnt][nKey][2]}")
    
-    def _PrintLogData(self): 
+    def _printLogData(self): 
         time_hms = time.strftime("%H:%M:%S", time.localtime())
         time_dmy = time.strftime("%d/%m/%Y", time.localtime())
         
@@ -1152,31 +1199,31 @@ class MainWindow(QMainWindow):
         self._worksheet.write(self._row, self._column+2, 'Date: ', bold)
         self._worksheet.write(self._row, self._column+3, f'{time_dmy}')
         
-        if self._authStatus:
+        if self._auth_status:
             self._worksheet.write(self._row, self._column+5, 'Auth OK', bold)
         else:
             self._worksheet.write(self._row, self._column+5, 'Auth Fail', bold)
 
-        for nKey in range(self._KeyAmount):
+        for nKey in range(self._key_amount):
             self._worksheet.write(self._row+3+nKey, self._column, f"KEY {nKey+1}")
     
-        Data = self._CanWorker.Data
+        Data = self._bus_worker.Data
 
-        for i in range(self._AntAmount):
+        for i in range(self._ant_amount):
             self._worksheet.write(self._row+1, i*4+self._column+2, f"ANTENNA {i+1}")
 
             self._worksheet.write(self._row+2, i*4+self._column+1, "RSSI X")
             self._worksheet.write(self._row+2, i*4+self._column+2, "RSSI Y")
             self._worksheet.write(self._row+2, i*4+self._column+3, "RSSI Z")
 
-            for nKey in range(self._KeyAmount):
+            for nKey in range(self._key_amount):
                 self._worksheet.write_number(self._row+3+nKey, i*4+self._column+1, Data[i][nKey][0])
                 self._worksheet.write_number(self._row+3+nKey, i*4+self._column+2, Data[i][nKey][1])                 
                 self._worksheet.write_number(self._row+3+nKey, i*4+self._column+3, Data[i][nKey][2])
 
         self._row += 9
 
-    def _PrintSigleLog(self):
+    def _addLogHandler(self):
         time_hms = time.strftime("%H:%M:%S", time.localtime())
         time_dmy = time.strftime("%d/%m/%Y", time.localtime())
         
@@ -1187,19 +1234,19 @@ class MainWindow(QMainWindow):
         self._worksheet_single.write(self._row_single, self._column_single+2, 'Date: ', bold)
         self._worksheet_single.write(self._row_single, self._column_single+3, f'{time_dmy}')
 
-        if self._authStatus:
+        if self._auth_status:
             self._worksheet_single.write(self._row_single, self._column_single+5, 'Auth OK', bold)
         else:
             self._worksheet_single.write(self._row_single, self._column_single+5, 'Auth Fail', bold)
 
-        msg = self._widgetLogMsg.text()
+        msg = self._widget_log_msg_lineedit.text()
         self._worksheet_single.write(self._row_single, self._column_single+7, 'Message: ', bold)
         self._worksheet_single.write(self._row_single, self._column_single+8, f'{msg}')
 
-        for nKey in range(self._KeyAmount):
+        for nKey in range(self._key_amount):
             self._worksheet_single.write(self._row_single+3+nKey, self._column_single, f"KEY {nKey+1}")
 
-        printData = self._CanWorker.Data
+        printData = self._bus_worker.Data
 
         for i in range(6):
             self._worksheet_single.write(self._row_single+1, i*4+self._column_single+2, f"ANTENNA {i+1}")
@@ -1208,27 +1255,28 @@ class MainWindow(QMainWindow):
             self._worksheet_single.write(self._row_single+2, i*4+self._column_single+2, "RSSI Y")
             self._worksheet_single.write(self._row_single+2, i*4+self._column_single+3, "RSSI Z")
 
-            for nKey in range(self._KeyAmount):
+            for nKey in range(self._key_amount):
                 self._worksheet_single.write_number(self._row_single+3+nKey, i*4+self._column_single+1, printData[i][nKey][0])
                 self._worksheet_single.write_number(self._row_single+3+nKey, i*4+self._column_single+2, printData[i][nKey][1])                 
                 self._worksheet_single.write_number(self._row_single+3+nKey, i*4+self._column_single+3, printData[i][nKey][2])
 
         self._row_single += 9
 
-    def _SetBackgroundAnimation(self, anim, func_name):
-        authAnimation1 = QPropertyAnimation(self, func_name, self)
-        # authAnimation1.setEasingCurve(QEasingCurve.OutCubic)
-        authAnimation1.setDuration(200)
-        authAnimation1.setStartValue(0)
-        authAnimation1.setEndValue(0.2)
-        authAnimation2 = QPropertyAnimation(self, func_name, self)
-        # authAnimation2.setEasingCurve(QEasingCurve.InCubic)
-        authAnimation2.setDuration(200)
-        authAnimation2.setStartValue(0.2)
-        authAnimation2.setEndValue(0)
+    def _setBackgroundAnimation(self, animation, func_name):
+        animation_1 = QPropertyAnimation(self, func_name, self)
+        # animation_1.setEasingCurve(QEasingCurve.OutCubic)
+        animation_1.setDuration(200)
+        animation_1.setStartValue(0)
+        animation_1.setEndValue(0.2)
 
-        anim.addAnimation(authAnimation1)
-        anim.addAnimation(authAnimation2)
+        animation_2 = QPropertyAnimation(self, func_name, self)
+        # animation_2.setEasingCurve(QEasingCurve.InCubic)
+        animation_2.setDuration(200)
+        animation_2.setStartValue(0.2)
+        animation_2.setEndValue(0)
+
+        animation.addAnimation(animation_1)
+        animation.addAnimation(animation_2)
 
     def _animationStart(self, animation):
         animation.start()
@@ -1245,15 +1293,15 @@ class MainWindow(QMainWindow):
         self._auth_background = pos
 
         color = ''
-        if self._authStatus == True:
+        if self._auth_status == True:
             color = 'green'
         else:
             color = 'red'
 
-        self._widgetAuth.setStyleSheet(f"color: {color}; \
-                                         background-color: rgba({self._backgroundColors[0]}, \
-                                                                {self._backgroundColors[1]}, \
-                                                                {self._backgroundColors[2]}, \
+        self._widget_auth_state_label.setStyleSheet(f"color: {color}; \
+                                         background-color: rgba({self._background_colors[0]}, \
+                                                                {self._background_colors[1]}, \
+                                                                {self._background_colors[2]}, \
                                                                 {pos}); \
                                          border-width: 2px; \
                                          border-radius: 10px;")
@@ -1265,9 +1313,9 @@ class MainWindow(QMainWindow):
     @pollings_done_background.setter
     def pollings_done_background(self, pos):
         self._pollings_done_background = pos
-        self._widgetPollingsDone.setStyleSheet(f"background-color: rgba({self._backgroundColors[0]}, \
-                                                                        {self._backgroundColors[1]}, \
-                                                                        {self._backgroundColors[2]}, \
+        self._widget_pollings_done_label.setStyleSheet(f"background-color: rgba({self._background_colors[0]}, \
+                                                                        {self._background_colors[1]}, \
+                                                                        {self._background_colors[2]}, \
                                                                         {pos}); \
                                                  border-width: 2px; \
                                                  border-radius: 10px;")
@@ -1279,9 +1327,9 @@ class MainWindow(QMainWindow):
     @last_key_background.setter
     def last_key_background(self, pos):
         self._last_key_background = pos
-        self._widgetLastKeyNum.setStyleSheet(f"background-color: rgba({self._backgroundColors[0]}, \
-                                                                      {self._backgroundColors[1]}, \
-                                                                      {self._backgroundColors[2]}, \
+        self._widget_last_key_label.setStyleSheet(f"background-color: rgba({self._background_colors[0]}, \
+                                                                      {self._background_colors[1]}, \
+                                                                      {self._background_colors[2]}, \
                                                                       {pos}); \
                                                border-width: 2px; \
                                                border-radius: 10px;")
@@ -1293,10 +1341,10 @@ class MainWindow(QMainWindow):
     @ant_imps_background.setter
     def ant_imps_background(self, pos):
         self._ant_imps_background = pos
-        for i in range(len(self._widgetAntImps)):
-            self._widgetAntImps[i].setStyleSheet(f"background-color: rgba({self._backgroundColors[0]}, \
-                                                                          {self._backgroundColors[1]}, \
-                                                                          {self._backgroundColors[2]}, \
+        for i in range(len(self._widget_ant_imps_labels)):
+            self._widget_ant_imps_labels[i].setStyleSheet(f"background-color: rgba({self._background_colors[0]}, \
+                                                                          {self._background_colors[1]}, \
+                                                                          {self._background_colors[2]}, \
                                                                           {pos}); \
                                                    border-width: 2px; \
                                                    border-radius: 10px;")
