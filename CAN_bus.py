@@ -51,15 +51,15 @@ class CanSendRecv(QThread):
         self._lastMsgTime = 0
         self._firstMsgTime = 0
         self._firstReceivedMsg = True
-        self._AntMask = 0x3F
-        self._KeyMask = 0x1F
-        self._PowerMode = 0
-        self._AuthMode = 1
-        self._PerformDiag = 0
-        self._Current = 0x1F
+        self._ant_mask = 0
+        self._key_mask = 0
+        self._power_mode = 0
+        self._auth_mode = 0
+        self._perform_diag = 0
+        self._poll_current = 0
         self._AntAmount = ANT_AMOUNT
         self._KeyAmount = KEY_AMOUNT
-        self._amountOfPollings = 0
+        self._performPollings = 0
 
         self._init_logger()
 
@@ -79,23 +79,22 @@ class CanSendRecv(QThread):
         self._logger.addHandler(f_handler)
         self._logger.setLevel(logging.WARNING)
 
-    def _CanSend(self):
+    def sendData(self):
         try:
             if self._busInitialized:
                 msg_to_send = can.Message(
                     arbitration_id=0x0211,
-                    data=[self._AntMask, 
-                          self._PowerMode, 
-                          self._amountOfPollings, 
-                          self._AuthMode, 
-                          self._PerformDiag,
-                          self._Current,
-                          self._KeyMask,
+                    data=[self._ant_mask, 
+                          self._key_mask,
+                          self._performPollings, 
+                          self._auth_mode, 
+                          self._perform_diag,
+                          self._poll_current,
+                          self._power_mode,
                           0],
                     is_extended_id = False
                 )
-                self._amountOfPollings = 0
-                self._PerformDiag = 0
+                self._perform_diag = 0
 
                 try:
                     self._bus.send(msg_to_send)
@@ -105,7 +104,7 @@ class CanSendRecv(QThread):
         except Exception as exc:
             self._logger.warning(f"CanSend error: {exc}")
         
-    def _CanReceive(self):
+    def _receiveData(self):
         try:
             if self._busInitialized:
                 while True:
@@ -152,35 +151,58 @@ class CanSendRecv(QThread):
     def TimeBetweenMsgs(self):
         return self._timeBetweenMsgs
     
-    def SetAntMask(self, mask):
-        self._AntMask = mask
-        self._CanSend()
+    @property
+    def ant_mask(self, mask):
+        return self._ant_mask
+    @ant_mask.setter
+    def ant_mask(self, mask):
+        print("AntMask: ", mask)
+        self._ant_mask = mask
 
-    def SetKeyMask(self, mask):
-        self._KeyMask = mask
-        self._CanSend()
+    @property
+    def key_mask(self):
+        return self._key_mask
+    @key_mask.setter
+    def key_mask(self, mask):
+        print("KeyMask: ", mask)
+        self._key_mask = mask
 
-    def SetPowerMode(self, mode):
-        self._PowerMode = mode
-        self._CanSend()
+    @property
+    def power_mode(self):
+        return self._power_mode
+    @power_mode.setter
+    def power_mode(self, mode):
+        print("PowerMode: ", mode)
+        self._power_mode = mode
 
-    def SetAuthMode(self, mode):
-        self._AuthMode = mode
-        self._CanSend()
+    @property
+    def auth_mode(self):
+        return self._auth_mode
+    @auth_mode.setter
+    def auth_mode(self, mode):
+        print("AuthMode: ", mode)
+        self._auth_mode = mode
 
-    def performDiag(self):
-        self._PerformDiag = 1
-        self._CanSend()
-
-    def setCurrent(self, curr):
-        self._Current = curr
-        self._CanSend()
+    @property
+    def poll_current(self):
+        return self._poll_current
+    @poll_current.setter
+    def poll_current(self, curr):
+        print("Current: ", curr)
+        self._poll_current = curr
     
-    def StartPoll(self, amountOfPollings):
-        self._amountOfPollings = amountOfPollings
-        self._firstReceivedMsg = True
+    def perform_diag(self):
+        self._perform_diag = 1
+        self.sendData()
 
-        self._CanSend()
+    def startPoll(self):
+        self._performPollings = 1
+        self._firstReceivedMsg = True
+        self.sendData()
+
+    def stopPoll(self):
+        self._performPollings = 0
+        self.sendData()
 
     def _ParseData(self, msg):
         if   msg.arbitration_id == RKE_KEY_NUM_ID:
@@ -411,7 +433,7 @@ class CanSendRecv(QThread):
             try:
                 self.canInited.emit()
             except: pass
-            self._CanSend()
+            self.sendData()
             return True
         except Exception as exc:
             self._logger.info(f"CAN was not inited: {exc}")
@@ -454,11 +476,11 @@ class CanSendRecv(QThread):
     def MainTask(self):
         if self._Counter > 5:
             self._Counter = 0
-            self._CanSend()
+            self.sendData()
 
         self._Counter += 1
 
-        self._CanReceive()
+        self._receiveData()
 
         QTimer.singleShot(100, self.MainTask)
 

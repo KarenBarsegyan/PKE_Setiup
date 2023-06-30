@@ -22,6 +22,27 @@ from json import JSONEncoder
 
 class KeysData():
     def __init__(self, ant_amount, key_amount):
-        self._ant_amount = 6
-        self._key_amount = 5
-        self._data = np.zeros((((self._AntAmount, 3))), dtype=int)
+        self._ant_amount = ant_amount
+        self._key_amount = key_amount
+        self._data = np.zeros((((self._ant_amount, 3))), dtype=int)
+
+    @property
+    def data(self):
+        return self._data
+    
+    @data.setter
+    def data(self, data):
+        print(type(np.zeros((((self._ant_amount, self._key_amount, 3))), dtype=int)))
+        self._data = data
+
+    def makeOneKeyData(self, data, keyNum):
+        res_data = np.zeros((((self._ant_amount, 3))), dtype=int)
+        for nAnt in range(0, self._ant_amount):
+            res_data[nAnt][0] = data[nAnt][keyNum][0]
+            res_data[nAnt][1] = data[nAnt][keyNum][1]
+            res_data[nAnt][2] = data[nAnt][keyNum][2]
+        
+        return res_data
+
+    def getZeroData(self):
+        return np.zeros((((self._ant_amount, self._key_amount, 3))), dtype=int)

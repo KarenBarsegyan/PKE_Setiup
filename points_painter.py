@@ -19,6 +19,8 @@ import numpy as np
 from functools import partial
 import json
 from json import JSONEncoder
+from keys_data import KeysData
+
 
 class NumpyArrayEncoder(JSONEncoder):
     def default(self, obj):
@@ -50,8 +52,8 @@ class PointsPainter(QThread):
         self._yellowPointInProgress = False
         self._AntAmount = 6
         self._KeyAmount = 5
-        self._data = np.zeros((((self._AntAmount+1, 3))), dtype=int)
-        self._average_data = self._data
+        self._ants_keys_data = KeysData(self._AntAmount, self._KeyAmount)
+        self._average_data = KeysData(self._AntAmount, self._KeyAmount)
         self._askForPollingFunc = askForPollingFunc
         self._amountsOfAverage = 0
         self._picWidth = 0
@@ -155,21 +157,21 @@ class PointsPainter(QThread):
         self._keyCircles.clear()
         self._antPoints.clear()
         
-    def RememberData(self, Data, keyNum, authStat, isDone):
-        self._data = Data
+    def rememberData(self, Data, keyNum, authStat, isDone):
+        self._ants_keys_data = Data
         if self._yellowPointInProgress:
             print(self._average_data[0][0], self._amountsOfAverage)
-            self._average_data += self._data
+            self._average_data += self._ants_keys_data
             self._amountsOfAverage += 1
             if (authStat):
                 self._authOkAmount += 1
         
             if isDone and self._yellowPointInProgress:
                 print("done")
-                self._data = np.floor_divide(self._average_data, self._amountsOfAverage)
-                self._data[self._AntAmount][0] = keyNum
-                self._data[self._AntAmount][1] = self._authOkAmount
-                self._data[self._AntAmount][2] = self._amountsOfAverage
+                self._ants_keys_data = np.floor_divide(self._average_data, self._amountsOfAverage)
+                self._ants_keys_data[self._AntAmount][0] = keyNum
+                self._ants_keys_data[self._AntAmount][1] = self._authOkAmount
+                self._ants_keys_data[self._AntAmount][2] = self._amountsOfAverage
 
                 self._setPoint(type = self.PointType.Green, coords = self._lastYellowPos)
                 self._yellowPointInProgress = False
@@ -292,7 +294,7 @@ class PointsPainter(QThread):
                 nAnt = self._antPoints[antPos]   
                 sumRSSI = 0
                 for i in range(3):
-                    sumRSSI += (self._data[nAnt][i])**2
+                    sumRSSI += (self._ants_keys_data[nAnt][i])**2
                 sumRSSI = int(round(sumRSSI ** 0.5))
 
                 if sumRSSI > 0:
@@ -494,7 +496,7 @@ class PointsPainter(QThread):
             else:
                 self._setAntAction.setVisible(False)
 
-            Data = self._data
+            Data = self._ants_keys_data
 
             self._ant_num_action.setVisible(False)
 
@@ -516,7 +518,7 @@ class PointsPainter(QThread):
             self._writeRSSIAction.setText("Polling in progress...")
             self._writeRSSIAction.setDisabled(True)
 
-            Data = self._data
+            Data = self._ants_keys_data
 
             self._ant_num_action.setVisible(False)
 
@@ -577,7 +579,7 @@ class PointsPainter(QThread):
             pos[1] >= self._mesh_step and pos[1] <= self._picHeight - self._mesh_step):
 
             if type == self.PointType.Green:
-                self._greenPoints[pos] = self._data.copy()
+                self._greenPoints[pos] = self._ants_keys_data.copy()
                 self.Calibrate()
 
             elif type == self.PointType.Yellow: 

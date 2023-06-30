@@ -8,13 +8,12 @@ from PyQt5.QtWidgets import (
     QMessageBox
 )
 from PyQt5.QtGui import (
-    QFont, QIntValidator, QIcon,
+    QFont, QIntValidator
 )
 from PyQt5.QtCore import (
     Qt, QSize, QThread,
-    QEasingCurve, QPropertyAnimation, 
-    QSequentialAnimationGroup, pyqtSlot, 
-    pyqtProperty, QTimer, QSettings
+    QPropertyAnimation,  QSequentialAnimationGroup, 
+    pyqtSlot, pyqtProperty, QTimer, QSettings
 )
 import numpy as np
 import time
@@ -24,7 +23,7 @@ from CAN_bus import CanSendRecv
 from points_painter import PointsPainter
 import os
 import json
-from functools import partial
+from keys_data import KeysData
 
 
 class MainWindow(QMainWindow):
@@ -41,14 +40,18 @@ class MainWindow(QMainWindow):
         self._auth_status = False
         self._is_polling_in_progress = False
         self._pollings_needed = 1
+        self._repeat_polling = False
         self._background_colors = [145, 147, 191]
         self._running_animations = dict()
+        self._ants_keys_data = KeysData(self._ant_amount, self._key_amount)
 
         self._initLogger()
         self._initWorksheet()
         self._setApp()
         self._busInit()
         self._openPreviousFile()
+
+        self.show()
         
     def _openPreviousFile(self):
         try:
@@ -66,6 +69,8 @@ class MainWindow(QMainWindow):
             filename = filename[filename.rfind('/')+1:]
             self.setWindowTitle(f"PKE Setup - {filename[:-len('.pkesetup')]}")
             self._restoreData()
+        else:
+            self._resetData()
 
     def closeEvent(self, *args, **kwargs):
         # Say hardware to stop polling
@@ -194,14 +199,12 @@ class MainWindow(QMainWindow):
         self._setPowerMode()
 
         # Init all widgets which doesn't have default text
-        self._resetData()
-        self._printData(False)
+        self._processData(False)
         
         # Show GUI
         widget = QWidget()
         widget.setLayout(self._layout_main)
         self.setCentralWidget(widget)
-        self.show()
 
     def _createmenu_bar(self):
         # File
@@ -317,7 +320,7 @@ class MainWindow(QMainWindow):
             
             # We created new file, so lets start from clear data 
             self._resetData()
-            self._printData(False)
+            self._processData(False)
 
             self._saveFile()
 
@@ -334,7 +337,7 @@ class MainWindow(QMainWindow):
             self._store_data_path = filename
             self._restoreData()
 
-            self._printData(False)
+            self._processData(False)
 
             filename = filename[filename.rfind('/')+1:]
             self.setWindowTitle(f"PKE Setup - {filename[:-len('.pkesetup')]}")
@@ -342,14 +345,24 @@ class MainWindow(QMainWindow):
     def _resetData(self):
         for nCnt in range(0, len(self._widget_ant_checkboxes)):
             self._widget_ant_checkboxes[nCnt].setChecked(True)
+        
+        self._updateAntMask()
 
         for nCnt in range(0, len(self._widget_key_checkboxes)):
             self._widget_key_checkboxes[nCnt].setChecked(True)
+        
+        self._updateKeyMask()
 
         self._widget_auth_checkbox.setChecked(True)
+        self._bus_worker.auth_mode = 1
+
         self._widget_curr_slider.setValue(32)
         self._widget_ant_curr_value_label.setText('Current: %.2f mA' % (15.625*(32)))
+        self._bus_worker.poll_current = 32
+
         self._widget_pwr_mode_label.setText('Normal Mode')
+        self._bus_worker.power_mode = 0
+
         self._widget_polling_amount_lineedit.setText('3')
 
         for i in range(6):
@@ -369,23 +382,29 @@ class MainWindow(QMainWindow):
                 else:
                     self._widget_ant_checkboxes[nCnt].setChecked(True)
 
+            self._updateAntMask()
+
             for nCnt in range(0, len(self._widget_key_checkboxes)):
                 if nCnt not in keys_ants_data['keys']:
                     self._widget_key_checkboxes[nCnt].setChecked(False)
                 else:
                     self._widget_key_checkboxes[nCnt].setChecked(True)
 
+            self._updateKeyMask()
+
             if keys_ants_data['auth'] == 0:
                 self._widget_auth_checkbox.setChecked(False)
+                self._bus_worker.auth_mode = 0
             else:
                 self._widget_auth_checkbox.setChecked(True)
+                self._bus_worker.auth_mode = 1
 
             self._widget_polling_amount_lineedit.setText(str(keys_ants_data['pollings_amount']))
 
             val = keys_ants_data['current']
             self._widget_curr_slider.setValue(val)
             self._widget_ant_curr_value_label.setText('Current: %.2f mA' % (15.625*(val)))
-            self._bus_worker.setCurrent(val)
+            self._bus_worker.poll_current = val
 
             self._widgetKeyForMeasure.setCurrentIndex(keys_ants_data['key_for_calibration'])
 
@@ -884,7 +903,7 @@ class MainWindow(QMainWindow):
                     font.setPointSize(11)
                     self._widget_ant_checkboxes[idx].setFont(font)
                     self._widget_ant_checkboxes[idx].setChecked(True)
-                    self._widget_ant_checkboxes[idx].stateChanged.connect(self._updateAntMask)
+                    self._widget_ant_checkboxes[idx].stateChanged.connect(self._updateAntMaskHandler)
                     self._widget_ant_checkboxes[idx].setText(f"Ant {idx+1}")
                     h.addWidget(self._widget_ant_checkboxes[idx])
                     h.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -920,7 +939,7 @@ class MainWindow(QMainWindow):
                     font.setPointSize(11)
                     self._widget_key_checkboxes[idx].setFont(font)
                     self._widget_key_checkboxes[idx].setChecked(True)
-                    self._widget_key_checkboxes[idx].stateChanged.connect(self._updateKeyMask)
+                    self._widget_key_checkboxes[idx].stateChanged.connect(self._updateKeyMaskHandler)
                     self._widget_key_checkboxes[idx].setText(f"Key {idx+1}")
                     h.addWidget(self._widget_key_checkboxes[idx])
                     h.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -962,7 +981,7 @@ class MainWindow(QMainWindow):
         self._bus_worker.canDeInited.connect(self._busDeInitedCallback)
         self._bus_worker.keyNumIdReceived.connect(self._lastKeyUpdateCallback)
         self._bus_worker.keyAuthReceived.connect(self._lastAuthUpdateCallback)
-        self._bus_worker.canReceivedAll.connect(self._printDataCallback)
+        self._bus_worker.canReceivedAll.connect(self._allDataReceivedCallback)
         self._bus_worker.antImpsReceived.connect(self._antImpsUpdateCallback)
         self._bus_worker.antDiagStateReceived.connect(self._antDiagUpdateCallback)
         
@@ -984,8 +1003,12 @@ class MainWindow(QMainWindow):
     def _busDeInitedCallback(self):
         self._widget_usb_state_label.setText("Systec Disconnected")
         self._widget_usb_state_label.setStyleSheet("color: black;")
-        self._printData(False)
+        self._processData(False)
         
+    def _updateAntMaskHandler(self):
+        self._updateAntMask()
+        self._bus_worker.sendData()
+
     def _updateAntMask(self):
         ant_mask = 0
         for nCnt in range(0, len(self._widget_ant_checkboxes)):
@@ -995,7 +1018,11 @@ class MainWindow(QMainWindow):
             else:
                 self._ant_frames[nCnt+1].hide()
 
-        self._bus_worker.SetAntMask(ant_mask)
+        self._bus_worker.ant_mask = ant_mask
+
+    def _updateKeyMaskHandler(self):
+        self._updateKeyMask()
+        self._bus_worker.sendData()
 
     def _updateKeyMask(self):
         key_mask = 0
@@ -1007,7 +1034,7 @@ class MainWindow(QMainWindow):
                 else:
                     self._key_frames[nAnt][nKey].hide()
         
-        self._bus_worker.SetKeyMask(key_mask)
+        self._bus_worker.key_mask = key_mask
 
     def _lastKeyUpdateCallback(self, lastPressedKey):
         self._widget_last_key_label.setText(f"Last Key Pressed Num: {lastPressedKey}\t\t")
@@ -1022,8 +1049,7 @@ class MainWindow(QMainWindow):
                 self._auth_status = False
                 self._widget_auth_state_label.setText(f'Auth: Fail')
 
-            if self._auth_state_animation.state() != QPropertyAnimation.Running:
-                self._animationStart(self._auth_state_animation)
+            self._animationStart(self._auth_state_animation)
 
     def _antImpsUpdateCallback(self, imps: list):
         for i in range(len(imps)):
@@ -1038,7 +1064,8 @@ class MainWindow(QMainWindow):
     def _currentChangedHandler(self):
         val = self._widget_curr_slider.value()
         self._widget_ant_curr_value_label.setText('Current: %.2f mA' % (15.625*(val)))
-        self._bus_worker.setCurrent(val)
+        self._bus_worker.poll_current = val
+        self._bus_worker.sendData()
 
     def _changeModeHandler(self):
         if self._power_mode == 0:
@@ -1048,19 +1075,38 @@ class MainWindow(QMainWindow):
             self._power_mode = 0 #Normal Mode
             self._widget_pwr_mode_label.setText("Normal Mode")
         
-        self._bus_worker.SetPowerMode(self._power_mode)
+        self._bus_worker.power_mode = self._power_mode
 
     def _startPollingHandler(self):
-        self._updateKeyMask()
-
-        if(self._widget_start_polling_button.text() == "Stop Polling"):
-            self._stopPolling()
-        else:
+        if(self._widget_start_polling_button.text() == "Start Polling"):
+            self._updateKeyMask()
             self._startPolling()
+        else:
+            self._pollings_done = 0
+            self._stopPolling()
+
+    def _startRepeatPollingHandler(self):
+        if(self._widget_start_repeat_polling_button.text() == "Start Repeat Polling"):
+            self._updateKeyMask()
+            self._startRepeatPolling()
+        else:
+            self._pollings_done = 0
+            self._stopPolling()
+
+    def _startRepeatPolling(self):
+        self._is_polling_in_progress = True
+        self._widget_start_polling_button.setText("Start Polling")
+        self._widget_start_repeat_polling_button.setText("Stop Repeat Polling")
+        self._repeat_polling = True
+        self._pollings_done = 0
+        self._bus_worker.startPoll()
+        self._processData(True)
 
     def _startPolling(self):
         self._is_polling_in_progress = True
         self._pollings_needed = int(self._widget_polling_amount_lineedit.text())
+        self._repeat_polling = False
+        self._pollings_done = 0
         
         if(self._pollings_needed <= 0):
             self._pollings_needed = 1
@@ -1071,69 +1117,58 @@ class MainWindow(QMainWindow):
 
         self._widget_start_polling_button.setText("Stop Polling")
         self._widget_start_repeat_polling_button.setText("Start Repeat Polling")
-        self._pollings_done = 0
-        self._animationStop(self._pollings_done_animation)
-        self._widget_pollings_done_label.setText(f"Target: {self._pollings_needed}; Done: {self._pollings_done}")
-        self._widget_pollings_done_label.setStyleSheet("color: black;")
-
-        self._bus_worker.StartPoll(self._pollings_needed)
+        self._bus_worker.startPoll()
+        self._processData(True)
 
     def _stopPolling(self):
         self._is_polling_in_progress = False
         self._widget_start_polling_button.setText("Start Polling")
         self._widget_start_repeat_polling_button.setText("Start Repeat Polling")
-        self._pollings_done = 0
-        self._animationStop(self._pollings_done_animation)
-        self._widget_pollings_done_label.setText(f"Target: - ; Done: -")
-        self._widget_pollings_done_label.setStyleSheet("color: black;")
-        self._pollings_needed = 0
-
-        # Command to stop poll
-        self._bus_worker.StartPoll(255)
-
-    def _startRepeatPollingHandler(self):
-        if(self._widget_start_repeat_polling_button.text() == "Stop Repeat Polling"):
-            self._stopPolling()
-            return
-        
-        self._is_polling_in_progress = True
-        self._widget_start_polling_button.setText("Start Polling")
-        self._widget_start_repeat_polling_button.setText("Stop Repeat Polling")
-        self._pollings_done = 0
-        self._animationStop(self._pollings_done_animation)
-        self._widget_pollings_done_label.setText(f"Target: ∞ ; Done: - ")
-        self._widget_pollings_done_label.setStyleSheet("color: black;")
-        self._pollings_needed = 0
-
-        self._bus_worker.StartPoll(254)
+        self._bus_worker.stopPoll()
 
     def _antDiagHandler(self):
-        self._bus_worker.performDiag()
+        self._bus_worker.perform_diag()
 
     def _performAuthStateHandler(self):
         if self._widget_auth_checkbox.isChecked():
-            self._bus_worker.SetAuthMode(1)
+            self._bus_worker.auth_mode = 1
         else:
-            self._bus_worker.SetAuthMode(0)
+            self._bus_worker.auth_mode = 0
             self._animationStop(self._auth_state_animation)
             self._widget_auth_state_label.setText(f'Auth: None\t')
             self._widget_auth_state_label.setStyleSheet("color: black;")
+        
+        self._bus_worker.sendData()
 
     def _askStartStopPollingCallback(self, start: bool = False):
         # We have to start polling anyway, so if it's in process
         # then stop it and start again
-        if(self._widget_start_polling_button.text() == "Stop Polling"):
-            self._stopPolling()
+        # if(self._widget_start_polling_button.text() == "Stop Polling"):
+        self._stopPolling()
 
         if start:
-            keyNum = self._widgetKeyForMeasure.currentIndex()
-            self._bus_worker.SetKeyMask(1 << keyNum)
+            key_num = self._widgetKeyForMeasure.currentIndex()
+            self._bus_worker.key_mask = (1 << key_num)
             self._startPolling()
 
-    def _printDataCallback(self):
-        self._printData(True)
+    def _allDataReceivedCallback(self):
+        if self._is_polling_in_progress:
+            self._animationStart(self._pollings_done_animation)
 
-    def _printData(self, res: bool):
+            self._pollings_done += 1
+            if self._pollings_done > 250:
+                self._pollings_done = 1
+
+            if (self._pollings_done == self._pollings_needed and not self._repeat_polling):
+                self._stopPolling()
+
+            self._processData(True)
+            # key_num = self._widgetKeyForMeasure.currentIndex()
+            # dataForCalibration = self._ants_keys_data.makeOneKeyData(data, key_num)
+            # self._points_painter.rememberData(dataForCalibration, key_num, self._auth_status, isPollDone)
+            # self._printLogData()
+
+    def _processData(self, res: bool):
         if not res:
             # Just set all widgets to standart state
             self._widget_msg_period_label.setText("Msg Period: 0 ms")
@@ -1141,52 +1176,37 @@ class MainWindow(QMainWindow):
             self._widget_auth_state_label.setText(f'Auth: None\t')
             self._widget_auth_state_label.setStyleSheet("color: black;")
             self._widget_last_key_label.setText(f"Last Key Pressed Num: None\t")
-            Data = np.zeros((((self._ant_amount, self._key_amount, 3))), dtype=int)
+            data = self._ants_keys_data.getZeroData()
             self._animationStop(self._pollings_done_animation)
             self._widget_pollings_done_label.setText(f"Target: - ; Done: -")
+            self._widget_pollings_done_label.setStyleSheet("color: black;")
             self._pollings_done = 0
-
+            
         else:
-            Data = self._bus_worker.Data
+            # Get data from CAN bus
+            data = self._bus_worker.Data
             self._widget_msg_period_label.setText(f"Msg Period: {int(self._bus_worker.TimeBetweenMsgs)} ms")
 
-            self._animationStart(self._pollings_done_animation)
-            isPollDone = False
-            if (self._pollings_needed != 0 and self._is_polling_in_progress):
-                self._pollings_done += 1
+            # Check if PKE block has done as much polling, as needed
+            if (not self._repeat_polling):
                 self._widget_pollings_done_label.setText(f"Target: {self._pollings_needed}; Done: {self._pollings_done}")
         
                 if (self._pollings_done == self._pollings_needed):
                     self._animationStop(self._pollings_done_animation)
                     self._widget_pollings_done_label.setStyleSheet("color: green;")
-                    isPollDone = True
-                    self._widget_start_polling_button.setText("Start Polling")
+                else:
+                    self._widget_pollings_done_label.setStyleSheet("color: black;")
 
-
-            elif (self._is_polling_in_progress):
-                self._pollings_done += 1
-                if self._pollings_done > 250:
-                    self._pollings_done = 1
-                    
+            else:  
                 self._widget_pollings_done_label.setText(f"Target: ∞ ; Done: - ")
-
-
-            keyNum = self._widgetKeyForMeasure.currentIndex()
-            dataForCalibration = np.zeros((((self._ant_amount+1, 3))), dtype=int)
-
-            for nAnt in range(0, self._ant_amount):
-                dataForCalibration[nAnt][0] = Data[nAnt][keyNum][0]
-                dataForCalibration[nAnt][1] = Data[nAnt][keyNum][1]
-                dataForCalibration[nAnt][2] = Data[nAnt][keyNum][2]
-
-            self._points_painter.RememberData(dataForCalibration, keyNum, self._auth_status, isPollDone)
-            self._printLogData()
 
         for nAnt in range(self._ant_amount):
             for nKey in range(self._key_amount):
-                self._RSSI_widgets[nAnt][nKey].setText(f"X: {' '*(3-len(str(Data[nAnt][nKey][0])))}{Data[nAnt][nKey][0]}\n" +
-                                                       f"Y: {' '*(3-len(str(Data[nAnt][nKey][1])))}{Data[nAnt][nKey][1]}\n" +
-                                                       f"Z: {' '*(3-len(str(Data[nAnt][nKey][2])))}{Data[nAnt][nKey][2]}")
+                self._RSSI_widgets[nAnt][nKey].setText(
+                    f"X: {' '*(3-len(str(data[nAnt][nKey][0])))}{data[nAnt][nKey][0]}\n" +
+                    f"Y: {' '*(3-len(str(data[nAnt][nKey][1])))}{data[nAnt][nKey][1]}\n" +
+                    f"Z: {' '*(3-len(str(data[nAnt][nKey][2])))}{data[nAnt][nKey][2]}"
+                )
    
     def _printLogData(self): 
         time_hms = time.strftime("%H:%M:%S", time.localtime())
@@ -1207,7 +1227,7 @@ class MainWindow(QMainWindow):
         for nKey in range(self._key_amount):
             self._worksheet.write(self._row+3+nKey, self._column, f"KEY {nKey+1}")
     
-        Data = self._bus_worker.Data
+        data = self._bus_worker.Data
 
         for i in range(self._ant_amount):
             self._worksheet.write(self._row+1, i*4+self._column+2, f"ANTENNA {i+1}")
@@ -1217,9 +1237,9 @@ class MainWindow(QMainWindow):
             self._worksheet.write(self._row+2, i*4+self._column+3, "RSSI Z")
 
             for nKey in range(self._key_amount):
-                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+1, Data[i][nKey][0])
-                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+2, Data[i][nKey][1])                 
-                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+3, Data[i][nKey][2])
+                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+1, data[i][nKey][0])
+                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+2, data[i][nKey][1])                 
+                self._worksheet.write_number(self._row+3+nKey, i*4+self._column+3, data[i][nKey][2])
 
         self._row += 9
 
