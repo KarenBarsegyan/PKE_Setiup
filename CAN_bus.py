@@ -95,7 +95,6 @@ class CanSendRecv(QThread):
                     is_extended_id = False
                 )
                 self._perform_diag = 0
-
                 try:
                     self._bus.send(msg_to_send)
                 except Exception as exc:
@@ -112,7 +111,7 @@ class CanSendRecv(QThread):
                         msg = self._bus.recv(0.01)
                     except Exception as exc:
                         self._logger.warning(f"Can did't receive: {exc}")
-                        self._BusDeInit()
+                        self.BusDeInit()
                         break
 
                     if msg == None:
@@ -152,11 +151,11 @@ class CanSendRecv(QThread):
         return self._timeBetweenMsgs
     
     @property
-    def ant_mask(self, mask):
+    def ant_mask(self):
         return self._ant_mask
     @ant_mask.setter
     def ant_mask(self, mask):
-        print("AntMask: ", mask)
+        # print("AntMask: ", mask)
         self._ant_mask = mask
 
     @property
@@ -164,7 +163,7 @@ class CanSendRecv(QThread):
         return self._key_mask
     @key_mask.setter
     def key_mask(self, mask):
-        print("KeyMask: ", mask)
+        # print("KeyMask: ", mask)
         self._key_mask = mask
 
     @property
@@ -172,7 +171,7 @@ class CanSendRecv(QThread):
         return self._power_mode
     @power_mode.setter
     def power_mode(self, mode):
-        print("PowerMode: ", mode)
+        # print("PowerMode: ", mode)
         self._power_mode = mode
 
     @property
@@ -180,7 +179,7 @@ class CanSendRecv(QThread):
         return self._auth_mode
     @auth_mode.setter
     def auth_mode(self, mode):
-        print("AuthMode: ", mode)
+        # print("AuthMode: ", mode)
         self._auth_mode = mode
 
     @property
@@ -188,7 +187,7 @@ class CanSendRecv(QThread):
         return self._poll_current
     @poll_current.setter
     def poll_current(self, curr):
-        print("Current: ", curr)
+        # print("Current: ", curr)
         self._poll_current = curr
     
     def perform_diag(self):
@@ -432,11 +431,12 @@ class CanSendRecv(QThread):
             self._logger.info("CAN was inited!")
             try:
                 self.canInited.emit()
-            except: pass
+            except Exception as exc: 
+                self._logger.warning(f"Can Inited emit fail: {exc}")
             self.sendData()
             return True
         except Exception as exc:
-            self._logger.info(f"CAN was not inited: {exc}")
+            self._logger.warning(f"CAN was not inited: {exc}")
             return False
 
     def BusInit(self):
@@ -463,8 +463,8 @@ class CanSendRecv(QThread):
                     del self._bus
                     try:
                         self.canDeInited.emit()
-                    except: 
-                        self._logger.info("Error in CAN De Init emit") 
+                    except Exception as exc: 
+                        self._logger.warning(f"Error in CAN De Init emit: {exc}") 
                     self._logger.info("CAN was deinited!")
                 except Exception as exc:
                     self._logger.warning(f"CAN was not deinited: {exc}")

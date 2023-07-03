@@ -19,7 +19,7 @@ import numpy as np
 from functools import partial
 import json
 from json import JSONEncoder
-from keys_data import KeysData
+from keys_data import KeysData, KeysDataAverage
 
 
 class NumpyArrayEncoder(JSONEncoder):
@@ -53,15 +53,14 @@ class PointsPainter(QThread):
         self._AntAmount = 6
         self._KeyAmount = 5
         self._ants_keys_data = KeysData(self._AntAmount, self._KeyAmount)
-        self._average_data = KeysData(self._AntAmount, self._KeyAmount)
         self._askForPollingFunc = askForPollingFunc
         self._amountsOfAverage = 0
         self._picWidth = 0
         self._picHeight = 0
-        self._distCoeff = dict()
         self._store_data_path = ''
         self._keyChosen = 0
         self._rssiFloatingWindowIsHidden = True
+        self._distCoeff = dict()
 
         self._yellow_radius = 0
         self._yellowAnimation = QPropertyAnimation(self, b"yellow_radius", self)
@@ -96,14 +95,14 @@ class PointsPainter(QThread):
             pointsData = allData['points']
             self._greenPoints.clear()
             for point in pointsData['pointsGreen']: 
-                numpyArray = np.asarray(pointsData['pointsGreen'][point])
-                self._greenPoints[tuple(json.loads(point))] = numpyArray
+                numpyArray = np.asarray(json.loads(pointsData['pointsGreen'][point][0]))
+                auths_ok = pointsData['pointsGreen'][point][1]
+                polls_done = pointsData['pointsGreen'][point][2]
+                key_num = pointsData['pointsGreen'][point][3]
 
-            # for point in pointsData['pointsYellow']: 
-            #     self._yellowPoints[tuple(json.loads(point))] = 0
-
-            # for point in pointsData['pointsRed']: 
-            #     self._redPoints[tuple(json.loads(point))] = 0
+                data = KeysDataAverage()
+                data.setData(numpyArray, auths_ok, polls_done, key_num)
+                self._greenPoints[tuple(json.loads(point))] = data
 
             self._antPoints.clear()
             for point in pointsData['pointsAnt']: 
@@ -114,8 +113,8 @@ class PointsPainter(QThread):
             self._paintCalibrationEvent()
             self._paintMeasureEvent()
 
-        except:
-            self._logger.info("No points data yet")
+        except Exception as exc:
+            self._logger.warning(f"No points data yet: {exc}")
 
     def saveData(self, path):
         to_json = {}
@@ -128,7 +127,7 @@ class PointsPainter(QThread):
         to_json['points'] = self.generateJson()
 
         with open(f'{path}', 'w') as f:
-            json.dump(to_json, f, cls=NumpyArrayEncoder)
+            json.dump(to_json, f)
 
         self._paintCalibrationEvent()
         self._paintMeasureEvent()
@@ -138,7 +137,10 @@ class PointsPainter(QThread):
 
         d = dict()
         for point in self._greenPoints:  
-            d[json.dumps(point)] = self._greenPoints[point]
+            d[json.dumps(point)] = [json.dumps(self._greenPoints[point].data, cls=NumpyArrayEncoder),
+                                    self._greenPoints[point].auths_ok,
+                                    self._greenPoints[point].polls_done,
+                                    self._greenPoints[point].key_num]
         data['pointsGreen'] = d
 
         d = dict()
@@ -157,24 +159,15 @@ class PointsPainter(QThread):
         self._keyCircles.clear()
         self._antPoints.clear()
         
-    def rememberData(self, Data, keyNum, authStat, isDone):
-        self._ants_keys_data = Data
+    def rememberData(self, Data, authStat, isDone):
+        self._ants_keys_data.key_num = Data.key_num
+        self._ants_keys_data.one_key_data = Data.makeOneKeyData()
         if self._yellowPointInProgress:
-            print(self._average_data[0][0], self._amountsOfAverage)
-            self._average_data += self._ants_keys_data
-            self._amountsOfAverage += 1
-            if (authStat):
-                self._authOkAmount += 1
-        
-            if isDone and self._yellowPointInProgress:
-                print("done")
-                self._ants_keys_data = np.floor_divide(self._average_data, self._amountsOfAverage)
-                self._ants_keys_data[self._AntAmount][0] = keyNum
-                self._ants_keys_data[self._AntAmount][1] = self._authOkAmount
-                self._ants_keys_data[self._AntAmount][2] = self._amountsOfAverage
-
+            self._ants_keys_data.addToAverage(self._ants_keys_data.one_key_data, authStat)
+            if isDone:
                 self._setPoint(type = self.PointType.Green, coords = self._lastYellowPos)
                 self._yellowPointInProgress = False
+                self._ants_keys_data.clearAverage()
 
         self._updateToolbarData()
         self._calcDistance()
@@ -257,15 +250,15 @@ class PointsPainter(QThread):
         return scrollPicture    
 
     def Calibrate(self):
-        # try:
-            coeff = 0
-            amountOfCalcs = 0
+        try:
             for antPos in self._antPoints:
+                coeff = 0
+                amountOfCalcs = 0
                 nAnt = self._antPoints[antPos]   
                 for gPos in self._greenPoints:
                     sumRSSI = 0
                     for i in range(3):
-                        sumRSSI += (self._greenPoints[gPos][nAnt][i])**2
+                        sumRSSI += (self._greenPoints[gPos].data[nAnt][i])**2
 
                     sumRSSI = int(round(sumRSSI ** 0.5))
 
@@ -278,23 +271,21 @@ class PointsPainter(QThread):
                     # print(f"Ant: {nAnt}\nnKey: {self._greenPoints[gPos][self._AntAmount][0]+1}\nDist: {dist}\nRSSI: {sumRSSI}")
                 if(amountOfCalcs != 0):
                     self._distCoeff[nAnt] = coeff/amountOfCalcs
-                    coeff = 0
-                    amountOfCalcs = 0
 
             # print(f"Mean val: {self._distCoeff}")
             # print("--------------------------------\n")
-        # except:
-        #     self._logger.warning("No data to calibrate")
+        except Exception as exc:
+            self._logger.warning(f"No data to calibrate: {exc}")
 
     def _calcDistance(self):
-        # try:
+        try:
             self._keyCircles.clear()
 
             for antPos in self._antPoints:
                 nAnt = self._antPoints[antPos]   
                 sumRSSI = 0
                 for i in range(3):
-                    sumRSSI += (self._ants_keys_data[nAnt][i])**2
+                    sumRSSI += (self._ants_keys_data.one_key_data[nAnt][i])**2
                 sumRSSI = int(round(sumRSSI ** 0.5))
 
                 if sumRSSI > 0:
@@ -317,11 +308,11 @@ class PointsPainter(QThread):
             self._findKeyPoint(pointsList)
 
             self._paintMeasureEvent()
-        # except:
-        #     self._logger.warning("Calc Distance Error")
+        except Exception as exc:
+            self._logger.warning(f"Calc Distance Error: {exc}")
 
     def _findIntersectionPoint(self, circ1pos, r1, circ2pos, r2):
-        # try:
+        try:
             if circ1pos == circ2pos:
                 return None
 
@@ -379,11 +370,11 @@ class PointsPainter(QThread):
                 res = [pos1, pos2]
                 res.sort()
                 return tuple([res[0], res[1]])
-        # except:
-        #     self._logger.warning("Find Intersection Error")
+        except Exception as exc:
+            self._logger.warning(f"Find Intersection Error: {exc}")
 
     def _findKeyPoint(self, points):
-        # try:
+        try:
             self._darkRedPoints.clear()
 
             if len(points) < 2:
@@ -435,8 +426,8 @@ class PointsPainter(QThread):
             self._redPoints.clear()
             p = tuple([int(sumX/amountOfPairs), int(sumY/amountOfPairs)])
             self._redPoints[p] = 0 
-        # except:
-        #     self._logger.warning("Find key point Error")
+        except:
+            self._logger.warning(f"Find key point Error: {exc}")
 
     def _populateSetAnts(self):
         self._setAntMenu.clear()
@@ -579,8 +570,8 @@ class PointsPainter(QThread):
             pos[1] >= self._mesh_step and pos[1] <= self._picHeight - self._mesh_step):
 
             if type == self.PointType.Green:
-                self._greenPoints[pos] = self._ants_keys_data.copy()
-                self.Calibrate()
+                self._greenPoints[pos] = KeysDataAverage(self._ants_keys_data)
+                self.Calibrate()    
 
             elif type == self.PointType.Yellow: 
                 self._yellowPointInProgress = True
@@ -596,7 +587,8 @@ class PointsPainter(QThread):
                 self._redPoints[pos] = 0
 
             elif type == self.PointType.Ant:  
-                self._antPoints[pos] = antNum             
+                self._antPoints[pos] = antNum  
+                self.Calibrate()              
 
             self._paintCalibrationEvent()
             self._paintMeasureEvent()
@@ -893,13 +885,14 @@ class PointsPainter(QThread):
         return scrollAntsData
 
     def _printAntsData(self):
-        Data = self._greenPoints[self._lastPos]
-        self._keyLabel.setText(f"Key {self._greenPoints[self._lastPos][self._AntAmount][0]+1}")
-        self._authLabel.setText(f"Auths {self._greenPoints[self._lastPos][self._AntAmount][1]}/{self._greenPoints[self._lastPos][self._AntAmount][2]}")
+        data = self._greenPoints[self._lastPos]
+        self._keyLabel.setText(f"Key {data.key_num+1}")
+        self._authLabel.setText(f"Auths {data.auths_ok}/{data.polls_done}")
+        data = data.data
         for nAnt in range(self._AntAmount):
-            self._RSSI_Widgets[nAnt].setText(f"X: {' '*(3-len(str(Data[nAnt][0])))}{Data[nAnt][0]}\n" +
-                                             f"Y: {' '*(3-len(str(Data[nAnt][1])))}{Data[nAnt][1]}\n" +
-                                             f"Z: {' '*(3-len(str(Data[nAnt][2])))}{Data[nAnt][2]}")
+            self._RSSI_Widgets[nAnt].setText(f"X: {' '*(3-len(str(data[nAnt][0])))}{data[nAnt][0]}\n" +
+                                             f"Y: {' '*(3-len(str(data[nAnt][1])))}{data[nAnt][1]}\n" +
+                                             f"Z: {' '*(3-len(str(data[nAnt][2])))}{data[nAnt][2]}")
 
     @pyqtProperty(float)
     def yellow_radius(self):

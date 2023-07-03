@@ -46,22 +46,26 @@ class MainWindow(QMainWindow):
         self._ants_keys_data = KeysData(self._ant_amount, self._key_amount)
 
         self._initLogger()
-        self._initWorksheet()
+        # self._initWorksheet()
         self._setApp()
         self._busInit()
         self._openPreviousFile()
 
         self.show()
-        
+
     def _openPreviousFile(self):
+        # Try to open folder which consists path
+        # to previous file
         try:
             with open(f'{self._store_save_file_path}', 'r') as f:
                 to_json = json.load(f)
 
             self._store_data_path_value = to_json
-        except:
-            self._logger.info("no such file yet")
+        except Exception as exc:
+            self._logger.warning(f"Open Previous File error: {exc}")
 
+        # If path is not empty try to restore data
+        # otherwise set all data to default (reset)
         filename = self._store_data_path_value
         if filename != "":
             self._store_data_path = filename
@@ -83,8 +87,8 @@ class MainWindow(QMainWindow):
         try:
             self._workbook.close()
             self._logger.info("WorkBook Closed")
-        except:
-            self._logger.info("Error closing WorkBook")
+        except Exception as exc:
+            self._logger.warning(f"Error closing WorkBook: {exc}")
 
         # Stop CAN bus thread
         try:
@@ -93,8 +97,8 @@ class MainWindow(QMainWindow):
                 self._bus_thread.wait()
 
             self._logger.info("CAN thread terminated")
-        except:
-            self._logger.info("Error terminating CAN thread")
+        except Exception as exc:
+            self._logger.warning(f"Error terminating CAN thread: {exc}")
 
         # Check if file wasn't created at all or if it hs changed
         self._showSaveWindow()
@@ -139,8 +143,8 @@ class MainWindow(QMainWindow):
             self._workbook = xlsxwriter.Workbook(f'logs/logs_by_{time_ymd}_{time_hms}.xlsx')
             self._worksheet = self._workbook.add_worksheet(name="All_Data")
             self._worksheet_single = self._workbook.add_worksheet(name="Single Data")
-        except:
-            self._logger.warning("Error opening XLS")
+        except Exception as exc:
+            self._logger.warning(f"Error opening XLS: {exc}")
 
     def _setApp(self):
         self.setWindowTitle("PKE Setup")
@@ -183,7 +187,7 @@ class MainWindow(QMainWindow):
         self._layout_main.addLayout(self._layout_data)
         self._layout_main.addLayout(layout_widgets_spacer)
 
-        self._createmenu_bar()
+        self._createMenuBar()
         self._setDataTabs()
 
         # Order here == order in layout for widgets
@@ -206,7 +210,7 @@ class MainWindow(QMainWindow):
         widget.setLayout(self._layout_main)
         self.setCentralWidget(widget)
 
-    def _createmenu_bar(self):
+    def _createMenuBar(self):
         # File
         new_action = QAction("&New", self)
         new_action.triggered.connect(self._newFile)
@@ -267,14 +271,13 @@ class MainWindow(QMainWindow):
         # is choosen. Othrwise use saveNewFileWindow
         filename = self._store_data_path
         if filename != '':
-            try:
+            # try:
                 # Check if data was changed or not
                 with open(f'{self._store_data_path}', 'r') as f:
                     to_json = json.load(f)
 
                 if (to_json['key_ants'] != self._generateJson() or
                     to_json['points'] != self._points_painter.generateJson()):
-
                     # if data was changed, ask to save it
                     filename = filename[filename.rfind('/')+1:]
                     filename = filename[:-len('.pkesetup')]
@@ -288,9 +291,9 @@ class MainWindow(QMainWindow):
                     if return_value == QMessageBox.Yes:
                         self._saveFile()
 
-            except:
-                self._logger.info("no such file yet")
-        
+            # except Exception as exc:
+            #     self._logger.warning(f"Show Save Window error: {exc}")
+
     def _showSaveNewFileWindow(self):
         filename = self._store_data_path
         if filename == '':
@@ -326,7 +329,7 @@ class MainWindow(QMainWindow):
 
             filename = filename[filename.rfind('/')+1:]
             self.setWindowTitle(f"PKE Setup - {filename[:-len('.pkesetup')]}")
-    
+
     def _openFile(self):
         self._showSaveWindow()
         options = QFileDialog.Options()
@@ -343,31 +346,34 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"PKE Setup - {filename[:-len('.pkesetup')]}")
 
     def _resetData(self):
+        # Take On all antennas
         for nCnt in range(0, len(self._widget_ant_checkboxes)):
             self._widget_ant_checkboxes[nCnt].setChecked(True)
-        
         self._updateAntMask()
 
+        # Take On all keys
         for nCnt in range(0, len(self._widget_key_checkboxes)):
             self._widget_key_checkboxes[nCnt].setChecked(True)
-        
         self._updateKeyMask()
 
+        #  Take on auth
         self._widget_auth_checkbox.setChecked(True)
         self._bus_worker.auth_mode = 1
 
+        # Set current to 500mA
         self._widget_curr_slider.setValue(32)
         self._widget_ant_curr_value_label.setText('Current: %.2f mA' % (15.625*(32)))
         self._bus_worker.poll_current = 32
 
+        # Set power mode to normal
         self._widget_pwr_mode_label.setText('Normal Mode')
         self._bus_worker.power_mode = 0
 
+        # Set polling amount to default value == 3
         self._widget_polling_amount_lineedit.setText('3')
 
-        for i in range(6):
-            self._widget_ant_imps_labels[i].setText(f'Ant {i+1}: {0} Ω')
-
+        # Clear another objects here:
+        # Delete all points and key data
         self._points_painter.clearData()
 
     def _restoreData(self):
@@ -376,22 +382,24 @@ class MainWindow(QMainWindow):
                 all_ants_data = json.load(f)
 
             keys_ants_data = all_ants_data['key_ants']
+
+            # Restore ant mask
             for nCnt in range(0, len(self._widget_ant_checkboxes)):
                 if nCnt not in keys_ants_data['ants']:
                     self._widget_ant_checkboxes[nCnt].setChecked(False)
                 else:
                     self._widget_ant_checkboxes[nCnt].setChecked(True)
-
             self._updateAntMask()
 
+            # Restore key mask
             for nCnt in range(0, len(self._widget_key_checkboxes)):
                 if nCnt not in keys_ants_data['keys']:
                     self._widget_key_checkboxes[nCnt].setChecked(False)
                 else:
                     self._widget_key_checkboxes[nCnt].setChecked(True)
-
             self._updateKeyMask()
 
+            # Restore flag to perform auth or not
             if keys_ants_data['auth'] == 0:
                 self._widget_auth_checkbox.setChecked(False)
                 self._bus_worker.auth_mode = 0
@@ -399,19 +407,22 @@ class MainWindow(QMainWindow):
                 self._widget_auth_checkbox.setChecked(True)
                 self._bus_worker.auth_mode = 1
 
+            # Restore pollings amount line
             self._widget_polling_amount_lineedit.setText(str(keys_ants_data['pollings_amount']))
 
+            # Restore current data
             val = keys_ants_data['current']
             self._widget_curr_slider.setValue(val)
             self._widget_ant_curr_value_label.setText('Current: %.2f mA' % (15.625*(val)))
             self._bus_worker.poll_current = val
 
+            # Restore Key for calibration choice
             self._widgetKeyForMeasure.setCurrentIndex(keys_ants_data['key_for_calibration'])
 
-        except:
+        except Exception as exc:
             self.setWindowTitle(f"PKE Setup - File Was deleted or moved")
             self._store_data_path_value = ""
-            self._logger.info("No such file in restore")
+            self._logger.warning(f"No such file in restore: {exc}")
 
     def _saveFile(self):
         if self._store_data_path == "":
@@ -449,7 +460,12 @@ class MainWindow(QMainWindow):
         if self._widget_auth_checkbox.isChecked(): 
             to_json['auth'] = 1
 
-        to_json['pollings_amount'] = int(self._widget_polling_amount_lineedit.text())
+        # if text() == '' exception would be risen
+        val = 0
+        try:
+            val = int(self._widget_polling_amount_lineedit.text())
+        except: pass
+        to_json['pollings_amount'] = val
 
         to_json['current'] = self._widget_curr_slider.value()
 
@@ -952,7 +968,7 @@ class MainWindow(QMainWindow):
         self._layout_widgets.addWidget(groupbox)
 
     def _setKeyForMeasure(self):
-        groupbox = QGroupBox("Key for calibration")
+        groupbox = QGroupBox("Key for calibration and measuring")
         font = groupbox.font()
         font.setPointSize(10)
         groupbox.setFont(font)
@@ -1004,7 +1020,7 @@ class MainWindow(QMainWindow):
         self._widget_usb_state_label.setText("Systec Disconnected")
         self._widget_usb_state_label.setStyleSheet("color: black;")
         self._processData(False)
-        
+
     def _updateAntMaskHandler(self):
         self._updateAntMask()
         self._bus_worker.sendData()
@@ -1038,7 +1054,7 @@ class MainWindow(QMainWindow):
 
     def _lastKeyUpdateCallback(self, lastPressedKey):
         self._widget_last_key_label.setText(f"Last Key Pressed Num: {lastPressedKey}\t\t")
-        self._animationStart(self._last_key_animation)
+        self._last_key_animation.start()
 
     def _lastAuthUpdateCallback(self, auth_status):
         if self._widget_auth_checkbox.isChecked() and self._is_polling_in_progress:
@@ -1049,13 +1065,13 @@ class MainWindow(QMainWindow):
                 self._auth_status = False
                 self._widget_auth_state_label.setText(f'Auth: Fail')
 
-            self._animationStart(self._auth_state_animation)
+            self._auth_state_animation.start()
 
     def _antImpsUpdateCallback(self, imps: list):
         for i in range(len(imps)):
             self._widget_ant_imps_labels[i].setText(f'Ant {i+1}: {imps[i]} Ω')
             
-        self._animationStart(self._antImpsAnimation)
+        self._antImpsAnimation.start()
 
     def _antDiagUpdateCallback(self, statuses: list):
         self._widget_diag_statuses_combobox.clear()
@@ -1104,7 +1120,11 @@ class MainWindow(QMainWindow):
 
     def _startPolling(self):
         self._is_polling_in_progress = True
-        self._pollings_needed = int(self._widget_polling_amount_lineedit.text())
+        try:
+            self._pollings_needed = int(self._widget_polling_amount_lineedit.text())
+        except:
+            self._pollings_needed = 0
+
         self._repeat_polling = False
         self._pollings_done = 0
         
@@ -1134,7 +1154,8 @@ class MainWindow(QMainWindow):
             self._bus_worker.auth_mode = 1
         else:
             self._bus_worker.auth_mode = 0
-            self._animationStop(self._auth_state_animation)
+            self._auth_status = False
+            self._auth_state_animation.stop()
             self._widget_auth_state_label.setText(f'Auth: None\t')
             self._widget_auth_state_label.setStyleSheet("color: black;")
         
@@ -1153,50 +1174,53 @@ class MainWindow(QMainWindow):
 
     def _allDataReceivedCallback(self):
         if self._is_polling_in_progress:
-            self._animationStart(self._pollings_done_animation)
+            self._pollings_done_animation.start()
 
             self._pollings_done += 1
             if self._pollings_done > 250:
                 self._pollings_done = 1
 
+            isPollDone = False
             if (self._pollings_done == self._pollings_needed and not self._repeat_polling):
                 self._stopPolling()
+                isPollDone = True
 
             self._processData(True)
-            # key_num = self._widgetKeyForMeasure.currentIndex()
-            # dataForCalibration = self._ants_keys_data.makeOneKeyData(data, key_num)
-            # self._points_painter.rememberData(dataForCalibration, key_num, self._auth_status, isPollDone)
+            
+            # Send data to painter object
+            self._ants_keys_data.key_num = self._widgetKeyForMeasure.currentIndex()
+            self._ants_keys_data.data = self._bus_worker.Data
+            self._points_painter.rememberData(self._ants_keys_data, self._auth_status, isPollDone)
             # self._printLogData()
 
     def _processData(self, res: bool):
         if not res:
             # Just set all widgets to standart state
             self._widget_msg_period_label.setText("Msg Period: 0 ms")
-            self._animationStop(self._auth_state_animation)
             self._widget_auth_state_label.setText(f'Auth: None\t')
             self._widget_auth_state_label.setStyleSheet("color: black;")
             self._widget_last_key_label.setText(f"Last Key Pressed Num: None\t")
             data = self._ants_keys_data.getZeroData()
-            self._animationStop(self._pollings_done_animation)
             self._widget_pollings_done_label.setText(f"Target: - ; Done: -")
             self._widget_pollings_done_label.setStyleSheet("color: black;")
             self._pollings_done = 0
+            for i in range(6):
+                self._widget_ant_imps_labels[i].setText(f'Ant {i+1}: {0} Ω')
+            self._widget_diag_statuses_combobox.clear()
             
         else:
             # Get data from CAN bus
             data = self._bus_worker.Data
             self._widget_msg_period_label.setText(f"Msg Period: {int(self._bus_worker.TimeBetweenMsgs)} ms")
 
+            # If done == needed then green color woold be setted incide animation
+            # But if we just have started polling, we have to set black color manually
+            if (self._pollings_done != self._pollings_needed):
+                self._widget_pollings_done_label.setStyleSheet("color: black;")
+
             # Check if PKE block has done as much polling, as needed
             if (not self._repeat_polling):
                 self._widget_pollings_done_label.setText(f"Target: {self._pollings_needed}; Done: {self._pollings_done}")
-        
-                if (self._pollings_done == self._pollings_needed):
-                    self._animationStop(self._pollings_done_animation)
-                    self._widget_pollings_done_label.setStyleSheet("color: green;")
-                else:
-                    self._widget_pollings_done_label.setStyleSheet("color: black;")
-
             else:  
                 self._widget_pollings_done_label.setText(f"Target: ∞ ; Done: - ")
 
@@ -1207,7 +1231,7 @@ class MainWindow(QMainWindow):
                     f"Y: {' '*(3-len(str(data[nAnt][nKey][1])))}{data[nAnt][nKey][1]}\n" +
                     f"Z: {' '*(3-len(str(data[nAnt][nKey][2])))}{data[nAnt][nKey][2]}"
                 )
-   
+
     def _printLogData(self): 
         time_hms = time.strftime("%H:%M:%S", time.localtime())
         time_dmy = time.strftime("%d/%m/%Y", time.localtime())
@@ -1298,12 +1322,6 @@ class MainWindow(QMainWindow):
         animation.addAnimation(animation_1)
         animation.addAnimation(animation_2)
 
-    def _animationStart(self, animation):
-        animation.start()
-        
-    def _animationStop(self, animation):
-        animation.stop()
-
     @pyqtProperty(float)
     def auth_background(self):
         return self._auth_background
@@ -1319,12 +1337,12 @@ class MainWindow(QMainWindow):
             color = 'red'
 
         self._widget_auth_state_label.setStyleSheet(f"color: {color}; \
-                                         background-color: rgba({self._background_colors[0]}, \
-                                                                {self._background_colors[1]}, \
-                                                                {self._background_colors[2]}, \
-                                                                {pos}); \
-                                         border-width: 2px; \
-                                         border-radius: 10px;")
+                                                      background-color: rgba({self._background_colors[0]}, \
+                                                                             {self._background_colors[1]}, \
+                                                                             {self._background_colors[2]}, \
+                                                                             {pos}); \
+                                                      border-width: 2px; \
+                                                      border-radius: 10px;")
             
     @pyqtProperty(float)
     def pollings_done_background(self):
@@ -1333,12 +1351,20 @@ class MainWindow(QMainWindow):
     @pollings_done_background.setter
     def pollings_done_background(self, pos):
         self._pollings_done_background = pos
-        self._widget_pollings_done_label.setStyleSheet(f"background-color: rgba({self._background_colors[0]}, \
-                                                                        {self._background_colors[1]}, \
-                                                                        {self._background_colors[2]}, \
-                                                                        {pos}); \
-                                                 border-width: 2px; \
-                                                 border-radius: 10px;")
+
+        color = ''
+        if self._pollings_done == self._pollings_needed:
+            color = 'green'
+        else:
+            color = 'black'
+
+        self._widget_pollings_done_label.setStyleSheet(f"color: {color}; \
+                                                         background-color: rgba({self._background_colors[0]}, \
+                                                                                {self._background_colors[1]}, \
+                                                                                {self._background_colors[2]}, \
+                                                                                {pos}); \
+                                                         border-width: 2px; \
+                                                         border-radius: 10px;")
 
     @pyqtProperty(float)
     def last_key_background(self):
@@ -1347,12 +1373,13 @@ class MainWindow(QMainWindow):
     @last_key_background.setter
     def last_key_background(self, pos):
         self._last_key_background = pos
+
         self._widget_last_key_label.setStyleSheet(f"background-color: rgba({self._background_colors[0]}, \
-                                                                      {self._background_colors[1]}, \
-                                                                      {self._background_colors[2]}, \
-                                                                      {pos}); \
-                                               border-width: 2px; \
-                                               border-radius: 10px;")
+                                                                           {self._background_colors[1]}, \
+                                                                           {self._background_colors[2]}, \
+                                                                           {pos}); \
+                                                    border-width: 2px; \
+                                                    border-radius: 10px;")
 
     @pyqtProperty(float)
     def ant_imps_background(self):
@@ -1363,11 +1390,21 @@ class MainWindow(QMainWindow):
         self._ant_imps_background = pos
         for i in range(len(self._widget_ant_imps_labels)):
             self._widget_ant_imps_labels[i].setStyleSheet(f"background-color: rgba({self._background_colors[0]}, \
-                                                                          {self._background_colors[1]}, \
-                                                                          {self._background_colors[2]}, \
-                                                                          {pos}); \
-                                                   border-width: 2px; \
-                                                   border-radius: 10px;")
+                                                                                   {self._background_colors[1]}, \
+                                                                                   {self._background_colors[2]}, \
+                                                                                   {pos}); \
+                                                            border-width: 2px; \
+                                                            border-radius: 10px;")
+
+
+
+class AppData():
+    def __init__(self):
+        self._ant_mask = 0
+        self._key_mask = 0
+        self._perform_auth = False
+        self._poll_current = 0
+        self._key_for_calibration = 0
 
 
 def app_start():
