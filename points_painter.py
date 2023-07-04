@@ -547,6 +547,7 @@ class PointsPainter(QThread):
             self._yellowPointInProgress = False
             del self._yellowPoints[pos]
             type = self.PointType.Yellow
+            self._yellowAnimation.stop()
         
         if pos in self._antPoints.keys():
             del self._antPoints[pos]
@@ -684,10 +685,16 @@ class PointsPainter(QThread):
         pen = QPen()
         radius = 10
         pen.setWidth(1)
-        pen.setColor(QColor('green'))
-        painter.setPen(pen)
-        painter.setBrush(QColor('green'))
         for point in self._greenPoints:
+            k = (self._greenPoints[point].auths_ok /
+                 self._greenPoints[point].polls_done)
+
+            color = QColor(max(0, int(150-150*k*2)+1), 
+                           min(150, int(75*k*2))+10, 1)
+            
+            pen.setColor(color)
+            painter.setPen(pen)
+            painter.setBrush(color)
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         pen = QPen()
@@ -712,12 +719,18 @@ class PointsPainter(QThread):
             painter.drawRect(rect)
 
         pen = QPen()
-        radius = 12
+        radius = 13
         pen.setWidth(1)
-        pen.setColor(QColor(21, 207, 0))
-        painter.setPen(pen)
-        painter.setBrush(QColor(21, 207, 0))
         for point in self._highlitedPoints:
+            k = (self._greenPoints[point].auths_ok /
+                 self._greenPoints[point].polls_done)
+
+            color = QColor(max(0, int(150-150*k*2)+1), 
+                           min(150, int(75*k*2))+60, 1)
+            
+            pen.setColor(color)
+            painter.setPen(pen)
+            painter.setBrush(color)
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         self._calibrationLabel.update()
