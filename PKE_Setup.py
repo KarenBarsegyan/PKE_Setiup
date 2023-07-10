@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QMessageBox
 )
 from PyQt5.QtGui import (
-    QFont, QIntValidator
+    QFont, QIntValidator, QIcon
 )
 from PyQt5.QtCore import (
     Qt, QSize, QThread,
@@ -46,7 +46,7 @@ class MainWindow(QMainWindow):
         self._ants_keys_data = KeysData(self._ant_amount, self._key_amount)
 
         self._initLogger()
-        # self._initWorksheet()
+        self._initWorksheet()
         self._setApp()
         self._busInit()
         self._openPreviousFile()
@@ -104,6 +104,10 @@ class MainWindow(QMainWindow):
         self._showSaveWindow()
         self._showSaveNewFileWindow()
 
+        try:
+            os.mkdir('store_data')
+        except: pass
+
         # Save last opened file full path
         to_json = self._store_data_path_value
         with open(f'{self._store_save_file_path}', 'w') as f:
@@ -141,13 +145,13 @@ class MainWindow(QMainWindow):
 
         try:
             self._workbook = xlsxwriter.Workbook(f'logs/logs_by_{time_ymd}_{time_hms}.xlsx')
-            self._worksheet = self._workbook.add_worksheet(name="All_Data")
-            self._worksheet_single = self._workbook.add_worksheet(name="Single Data")
+            self._worksheet_single = self._workbook.add_worksheet(name="Data")
         except Exception as exc:
             self._logger.warning(f"Error opening XLS: {exc}")
 
     def _setApp(self):
         self.setWindowTitle("PKE Setup")
+        self.setWindowIcon(QIcon('icons/icon_key.ico'))
 
         # Restore window size and pos
         self.settings = QSettings('ITELMA', 'PKE Setup')
@@ -1421,3 +1425,4 @@ if __name__ == "__main__":
 
 # pyinstaller --onefile --hidden-import=can.interfaces.systec -w PKE_Setup.py
 # pyinstaller PKE_Setup.py --hidden-import=can.interfaces.systec --noconsole --add-data "pictures;pictures" --name PKE_Setup --noconfirm
+# pyinstaller PKE_Setup.spec -y

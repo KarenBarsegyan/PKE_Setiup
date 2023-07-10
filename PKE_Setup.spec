@@ -8,7 +8,7 @@ a = Analysis(
     ['PKE_Setup.py'],
     pathex=[],
     binaries=[],
-    datas=[('pictures', 'pictures')],
+    datas=[('pictures', 'pictures'), ('icons', 'icons')],
     hiddenimports=['can.interfaces.systec'],
     hookspath=[],
     hooksconfig={},
@@ -37,6 +37,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['icons\\icon_key.ico'],
 )
 coll = COLLECT(
     exe,
