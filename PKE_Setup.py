@@ -145,7 +145,8 @@ class MainWindow(QMainWindow):
 
         try:
             self._workbook = xlsxwriter.Workbook(f'logs/logs_by_{time_ymd}_{time_hms}.xlsx')
-            self._worksheet_single = self._workbook.add_worksheet(name="Data")
+            # self._worksheet = self._workbook.add_worksheet(name="All_Data")
+            self._worksheet_single = self._workbook.add_worksheet(name="Single Data")
         except Exception as exc:
             self._logger.warning(f"Error opening XLS: {exc}")
 
@@ -862,12 +863,12 @@ class MainWindow(QMainWindow):
         box.addWidget(self._widget_log_msg_lineedit)
 
         # Set button to send log
-        widget_add_log_button = QPushButton("Add LOG")
-        font = widget_add_log_button.font()
-        font.setPointSize(12)
-        widget_add_log_button.setFont(font)
-        box.addWidget(widget_add_log_button)
-        widget_add_log_button.clicked.connect(self._addLogHandler)
+        # widget_add_log_button = QPushButton("Add LOG")
+        # font = widget_add_log_button.font()
+        # font.setPointSize(12)
+        # widget_add_log_button.setFont(font)
+        # box.addWidget(widget_add_log_button)
+        # widget_add_log_button.clicked.connect(self._addLogHandler)
 
         self._layout_widgets.addWidget(groupbox)
 
@@ -1191,6 +1192,9 @@ class MainWindow(QMainWindow):
 
             self._processData(True)
             
+            if not self._repeat_polling:
+                self._addLogHandler()
+
             # Send data to painter object
             self._ants_keys_data.key_num = self._widgetKeyForMeasure.currentIndex()
             self._ants_keys_data.data = self._bus_worker.Data
@@ -1230,10 +1234,16 @@ class MainWindow(QMainWindow):
 
         for nAnt in range(self._ant_amount):
             for nKey in range(self._key_amount):
+
+                RMS = int((data[nAnt][nKey][0]**2 + data[nAnt][nKey][1]**2 + data[nAnt][nKey][2]**2)**(0.5))
+                MED = int((data[nAnt][nKey][0] + data[nAnt][nKey][1] + data[nAnt][nKey][2])/3)
+
                 self._RSSI_widgets[nAnt][nKey].setText(
-                    f"X: {' '*(3-len(str(data[nAnt][nKey][0])))}{data[nAnt][nKey][0]}\n" +
-                    f"Y: {' '*(3-len(str(data[nAnt][nKey][1])))}{data[nAnt][nKey][1]}\n" +
-                    f"Z: {' '*(3-len(str(data[nAnt][nKey][2])))}{data[nAnt][nKey][2]}"
+                    f" X : {' '*(3-len(str(data[nAnt][nKey][0])))}{data[nAnt][nKey][0]}\n" +
+                    f" Y : {' '*(3-len(str(data[nAnt][nKey][1])))}{data[nAnt][nKey][1]}\n" +
+                    f" Z : {' '*(3-len(str(data[nAnt][nKey][2])))}{data[nAnt][nKey][2]}\n" +
+                    f"RMS: {' '*(3-len(str(RMS)))}{RMS}\n"
+                    f"MID: {' '*(3-len(str(MED)))}{MED}"
                 )
 
     def _printLogData(self): 
