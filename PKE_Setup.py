@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
         self._background_colors = [145, 147, 191]
         self._running_animations = dict()
         self._ants_keys_data = KeysData(self._ant_amount, self._key_amount)
+        self._ants_keys_data_ranges = np.zeros((((self._ant_amount, self._key_amount, 3))), dtype=int)
 
         self._initLogger()
         self._initWorksheet()
@@ -589,7 +590,7 @@ class MainWindow(QMainWindow):
                 key_frame_local.append(QFrame())
 
                 k = QLabel()
-                k.setFont(QFont('Courier', 14))
+                k.setFont(QFont('Courier', 30))
                 k.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
                 
                 groupbox = QGroupBox()
@@ -1190,6 +1191,8 @@ class MainWindow(QMainWindow):
                 self._stopPolling()
                 isPollDone = True
 
+            self._correctData()
+
             self._processData(True)
             
             if not self._repeat_polling:
@@ -1198,8 +1201,54 @@ class MainWindow(QMainWindow):
             # Send data to painter object
             self._ants_keys_data.key_num = self._widgetKeyForMeasure.currentIndex()
             self._ants_keys_data.data = self._bus_worker.Data
+
             self._points_painter.rememberData(self._ants_keys_data, self._auth_status, isPollDone)
             # self._printLogData()
+
+    def _correctData(self):
+        X1 = 110.0 * 10
+        X2 = 15.7  * 10
+        X3 = 1.67  * 10
+        X4 = 0.205 * 10
+        X5 = 0.025 * 10
+
+        for nAnt in range(self._ant_amount):
+            for nKey in range(self._key_amount):
+                dataShow = [0]*3
+                dataShow[0] = self._bus_worker.Data[nAnt][nKey][0] & 0x3FF
+                dataShow[1] = self._bus_worker.Data[nAnt][nKey][1] & 0x3FF
+                dataShow[2] = self._bus_worker.Data[nAnt][nKey][2] & 0x3FF
+
+                for i in range(3):
+                    db = self._bus_worker.Data[nAnt][nKey][i] >> 12
+                    self._ants_keys_data_ranges[nAnt][nKey][i] = db
+
+                    if   db == 1:
+                        dataShow[i] *= X1
+
+                    elif db == 2:
+                        dataShow[i] *= X2
+
+                    elif db == 3:
+                        dataShow[i] *= X3
+
+                    elif db == 4:
+                        dataShow[i] *= X4
+
+                    elif db == 5:
+                        dataShow[i] *= X5
+
+                X = 1#2.48
+                Y = 1#2.48
+                Z = 1#2.48
+                for i in range(3):
+                    if i == 0:
+                        self._ants_keys_data.data[nAnt][nKey][i] = int(dataShow[i]/X)
+                    if i == 1:
+                        self._ants_keys_data.data[nAnt][nKey][i] = int(dataShow[i]/Y)
+                    if i == 2:
+                        self._ants_keys_data.data[nAnt][nKey][i] = int(dataShow[i]/Z)
+
 
     def _processData(self, res: bool):
         if not res:
@@ -1208,7 +1257,7 @@ class MainWindow(QMainWindow):
             self._widget_auth_state_label.setText(f'Auth: None\t')
             self._widget_auth_state_label.setStyleSheet("color: black;")
             self._widget_last_key_label.setText(f"Last Key Pressed Num: None\t")
-            data = self._ants_keys_data.getZeroData()
+            # data = self._ants_keys_data.getZeroData()
             self._widget_pollings_done_label.setText(f"Target: - ; Done: -")
             self._widget_pollings_done_label.setStyleSheet("color: black;")
             self._pollings_done = 0
@@ -1217,8 +1266,6 @@ class MainWindow(QMainWindow):
             self._widget_diag_statuses_combobox.clear()
             
         else:
-            # Get data from CAN bus
-            data = self._bus_worker.Data
             self._widget_msg_period_label.setText(f"Msg Period: {int(self._bus_worker.TimeBetweenMsgs)} ms")
 
             # If done == needed then green color woold be setted incide animation
@@ -1234,16 +1281,36 @@ class MainWindow(QMainWindow):
 
         for nAnt in range(self._ant_amount):
             for nKey in range(self._key_amount):
+                dataShow = self._ants_keys_data.data[nAnt][nKey]
+                data_range = ['']*3
 
-                RMS = int((data[nAnt][nKey][0]**2 + data[nAnt][nKey][1]**2 + data[nAnt][nKey][2]**2)**(0.5))
-                MED = int((data[nAnt][nKey][0] + data[nAnt][nKey][1] + data[nAnt][nKey][2])/3)
+                for i in range(3):
+                    db = self._ants_keys_data_ranges[nAnt][nKey][i]
+                    if   db == 1:
+                        data_range[i] = '-18dB'
+                    elif db == 2:
+                        data_range[i] = '  0dB'
+                    elif db == 3:
+                        data_range[i] = ' 18dB'
+                    elif db == 4:
+                        data_range[i] = ' 36dB'
+                    elif db == 5:
+                        data_range[i] = ' 54dB'
+                    else:
+                        data_range[i] = '  ?dB'
+
+                RMS = int((int(dataShow[0])**2 + 
+                           int(dataShow[1])**2 +
+                           int(dataShow[2])**2)**(0.5))
+                
+                MED = int((dataShow[0] + dataShow[1] + dataShow[2])/3)
 
                 self._RSSI_widgets[nAnt][nKey].setText(
-                    f" X : {' '*(3-len(str(data[nAnt][nKey][0])))}{data[nAnt][nKey][0]}\n" +
-                    f" Y : {' '*(3-len(str(data[nAnt][nKey][1])))}{data[nAnt][nKey][1]}\n" +
-                    f" Z : {' '*(3-len(str(data[nAnt][nKey][2])))}{data[nAnt][nKey][2]}\n" +
-                    f"RMS: {' '*(3-len(str(RMS)))}{RMS}\n"
-                    f"MID: {' '*(3-len(str(MED)))}{MED}"
+                    f" X : {' '*(8-len(str(dataShow[0])))}{dataShow[0]} Range: {data_range[0]}\n" +
+                    f" Y : {' '*(8-len(str(dataShow[1])))}{dataShow[1]} Range: {data_range[1]}\n" +
+                    f" Z : {' '*(8-len(str(dataShow[2])))}{dataShow[2]} Range: {data_range[2]}\n" +
+                    f"RMS: {' '*(8-len(str( RMS )))}{ RMS }{' '*13}\0\n" +
+                    f"MED: {' '*(8-len(str( MED )))}{ MED }{' '*13}"
                 )
 
     def _printLogData(self): 

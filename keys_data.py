@@ -160,9 +160,9 @@ class KeysData():
     def calcAverageRMS(self, averageData):
         res_data = np.zeros(((self._ant_amount)), dtype=int)
         for nAnt in range(self._ant_amount):
-            res_data[nAnt] = int((averageData[nAnt][0]**2 + 
-                                  averageData[nAnt][1]**2 +
-                                  averageData[nAnt][2]**2)**0.5)
+            res_data[nAnt] = int((int(int(averageData[nAnt][0])**2) + 
+                                  int(int(averageData[nAnt][1])**2) +
+                                  int(int(averageData[nAnt][2])**2))**0.5)
 
         # print("Average: ", averageData)
         # print("Data: ", res_data)

@@ -264,7 +264,7 @@ class PointsPainter(QThread):
                 for gPos in self._greenPoints:
                     sumRSSI = 0
                     for i in range(3):
-                        sumRSSI += (self._greenPoints[gPos].data[nAnt][i])**2
+                        sumRSSI += int(int(self._greenPoints[gPos].data[nAnt][i])**2)
 
                     sumRSSI = int(round(sumRSSI ** 0.5))
 
@@ -291,11 +291,11 @@ class PointsPainter(QThread):
                 nAnt = self._antPoints[antPos]   
                 sumRSSI = 0
                 for i in range(3):
-                    sumRSSI += (self._ants_keys_data.one_key_data[nAnt][i])**2
-                sumRSSI = int(round(sumRSSI ** 0.5))
+                    sumRSSI += int(self._ants_keys_data.one_key_data[nAnt][i])**2
+                sumRSSI = int(round(int(sumRSSI) ** (0.5)))
 
                 if sumRSSI > 0:
-                    radius = int((self._distCoeff[nAnt]/sumRSSI)**0.5)
+                    radius = int(int(self._distCoeff[nAnt]/sumRSSI)**0.5)
                     self._keyCircles[antPos] = radius
 
             points = set()
@@ -788,7 +788,7 @@ class PointsPainter(QThread):
             painter.drawRect(rect)
 
         pen = QPen()
-        pen.setWidth(1)
+        pen.setWidth(3)
         pen.setColor(QColor('blue'))
         painter.setPen(pen)
         painter.setBrush(QColor('transparent'))
