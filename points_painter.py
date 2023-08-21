@@ -88,7 +88,7 @@ class PointsPainter(QThread):
         self._logger.setLevel(logging.WARNING)
 
     def restoreData(self, path):
-        try:
+        # try:
             with open(f'{path}') as f:
                 allData = json.load(f)
 
@@ -116,8 +116,8 @@ class PointsPainter(QThread):
             self._paintCalibrationEvent()
             self._paintMeasureEvent()
 
-        except Exception as exc:
-            self._logger.warning(f"No points data yet: {exc}")
+        # except Exception as exc:
+        #     self._logger.warning(f"No points data yet: {exc}")
 
     def saveData(self, path):
         to_json = {}
@@ -174,9 +174,9 @@ class PointsPainter(QThread):
                 self._setPoint(type = self.PointType.Green, coords = self._lastYellowPos)
                 self._yellowPointInProgress = False
                 self._ants_keys_data.clearAverage()
-
-        self._updateToolbarData()
+                
         self._calcDistance()
+        self._updateToolbarData()
     
     def SetUpCalibrationDesk(self):
         localLayout = QVBoxLayout()
@@ -256,11 +256,16 @@ class PointsPainter(QThread):
         return scrollPicture    
 
     def Calibrate(self):
-        try:
+        # try:
             for antPos in self._antPoints:
                 coeff = 0
                 amountOfCalcs = 0
                 nAnt = self._antPoints[antPos]   
+                
+                # Delete old Coeff if exists
+                if nAnt in self._distCoeff:
+                    del self._distCoeff[nAnt]
+
                 for gPos in self._greenPoints:
                     sumRSSI = 0
                     for i in range(3):
@@ -273,18 +278,18 @@ class PointsPainter(QThread):
                         coeff += sumRSSI*dist*dist
                         amountOfCalcs += 1
 
-                    # print(f"ANT: {nAnt} \t RSSI: {sumRSSI} \t Dist: {int(dist)} \t Coeff: {int(sumRSSI*dist*dist)}")
+                    print(f"ANT: {nAnt} \t RSSI: {sumRSSI} \t Dist: {int(dist)} \t Coeff: {int(sumRSSI*dist*dist)}")
                     # print(f"Ant: {nAnt}\nnKey: {self._greenPoints[gPos][self._AntAmount][0]+1}\nDist: {dist}\nRSSI: {sumRSSI}")
                 if(amountOfCalcs != 0):
                     self._distCoeff[nAnt] = coeff/amountOfCalcs
 
             # print(f"Mean val: {self._distCoeff}")
             # print("--------------------------------\n")
-        except Exception as exc:
-            self._logger.warning(f"No data to calibrate: {exc}")
+        # except Exception as exc:
+        #     self._logger.warning(f"No data to calibrate: {exc}")
 
     def _calcDistance(self):
-        try:
+        # try:
             self._keyCircles.clear()
 
             for antPos in self._antPoints:
@@ -295,8 +300,9 @@ class PointsPainter(QThread):
                 sumRSSI = int(round(int(sumRSSI) ** (0.5)))
 
                 if sumRSSI > 0:
-                    radius = int(int(self._distCoeff[nAnt]/sumRSSI)**0.5)
-                    self._keyCircles[antPos] = radius
+                    if nAnt in self._distCoeff:
+                        radius = int(int(self._distCoeff[nAnt]/sumRSSI)**0.5)
+                        self._keyCircles[antPos] = radius
 
             points = set()
             self._bluePoints.clear()
@@ -314,11 +320,11 @@ class PointsPainter(QThread):
             self._findKeyPoint(pointsList)
 
             self._paintMeasureEvent()
-        except Exception as exc:
-            self._logger.warning(f"Calc Distance Error: {exc}")
+        # except Exception as exc:
+        #     self._logger.warning(f"Calc Distance Error: {exc}")
 
     def _findIntersectionPoint(self, circ1pos, r1, circ2pos, r2):
-        try:
+        # try:
             if circ1pos == circ2pos:
                 return None
 
@@ -376,11 +382,11 @@ class PointsPainter(QThread):
                 res = [pos1, pos2]
                 res.sort()
                 return tuple([res[0], res[1]])
-        except Exception as exc:
-            self._logger.warning(f"Find Intersection Error: {exc}")
+        # except Exception as exc:
+        #     self._logger.warning(f"Find Intersection Error: {exc}")
 
     def _findKeyPoint(self, points):
-        try:
+        # try:
             self._darkRedPoints.clear()
 
             if len(points) < 2:
@@ -432,8 +438,8 @@ class PointsPainter(QThread):
             self._redPoints.clear()
             p = tuple([int(sumX/amountOfPairs), int(sumY/amountOfPairs)])
             self._redPoints[p] = 0 
-        except:
-            self._logger.warning(f"Find key point Error: {exc}")
+        # except Exception as exc:
+        #     self._logger.warning(f"Find key point Error: {exc}")
 
     def _populateSetAnts(self):
         self._setAntMenu.clear()
@@ -546,7 +552,6 @@ class PointsPainter(QThread):
         if pos in self._greenPoints.keys():
             del self._greenPoints[pos]
             type = self.PointType.Green
-            self.Calibrate()
 
         if pos in self._yellowPoints.keys():
             self._askForPollingFunc(start = False)
@@ -559,6 +564,7 @@ class PointsPainter(QThread):
             del self._antPoints[pos]
             type = self.PointType.Ant
 
+        self.Calibrate()
         self._paintCalibrationEvent()
         self._paintMeasureEvent()
 

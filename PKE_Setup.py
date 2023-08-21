@@ -383,7 +383,7 @@ class MainWindow(QMainWindow):
         self._points_painter.clearData()
 
     def _restoreData(self):
-        try:
+        # try:
             with open(f'{self._store_data_path}') as f:
                 all_ants_data = json.load(f)
 
@@ -425,10 +425,10 @@ class MainWindow(QMainWindow):
             # Restore Key for calibration choice
             self._widgetKeyForMeasure.setCurrentIndex(keys_ants_data['key_for_calibration'])
 
-        except Exception as exc:
-            self.setWindowTitle(f"PKE Setup - File Was deleted or moved")
-            self._store_data_path_value = ""
-            self._logger.warning(f"No such file in restore: {exc}")
+        # except Exception as exc:
+        #     self.setWindowTitle(f"PKE Setup - File Was deleted or moved")
+        #     self._store_data_path_value = ""
+        #     self._logger.warning(f"No such file in restore: {exc}")
 
     def _saveFile(self):
         if self._store_data_path == "":
