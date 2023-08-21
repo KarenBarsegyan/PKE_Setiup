@@ -269,16 +269,16 @@ class PointsPainter(QThread):
                 for gPos in self._greenPoints:
                     sumRSSI = 0
                     for i in range(3):
-                        sumRSSI += int(int(self._greenPoints[gPos].data[nAnt][i])**2)
+                        sumRSSI += (self._greenPoints[gPos].data[nAnt][i])**2
 
-                    sumRSSI = int(round(sumRSSI ** 0.5))
+                    sumRSSI = round(sumRSSI ** 0.5)
 
                     if sumRSSI > 0:
                         dist = ((gPos[0] - antPos[0])**2 + (gPos[1] - antPos[1])**2)**0.5
                         coeff += sumRSSI*dist*dist
                         amountOfCalcs += 1
 
-                    print(f"ANT: {nAnt} \t RSSI: {sumRSSI} \t Dist: {int(dist)} \t Coeff: {int(sumRSSI*dist*dist)}")
+                    # print(f"ANT: {nAnt} \t RSSI: {sumRSSI} \t Dist: {int(dist)} \t Coeff: {int(sumRSSI*dist*dist)}")
                     # print(f"Ant: {nAnt}\nnKey: {self._greenPoints[gPos][self._AntAmount][0]+1}\nDist: {dist}\nRSSI: {sumRSSI}")
                 if(amountOfCalcs != 0):
                     self._distCoeff[nAnt] = coeff/amountOfCalcs
@@ -296,12 +296,12 @@ class PointsPainter(QThread):
                 nAnt = self._antPoints[antPos]   
                 sumRSSI = 0
                 for i in range(3):
-                    sumRSSI += int(self._ants_keys_data.one_key_data[nAnt][i])**2
-                sumRSSI = int(round(int(sumRSSI) ** (0.5)))
+                    sumRSSI += self._ants_keys_data.one_key_data[nAnt][i]**2
+                sumRSSI = round(sumRSSI ** (0.5))
 
                 if sumRSSI > 0:
                     if nAnt in self._distCoeff:
-                        radius = int(int(self._distCoeff[nAnt]/sumRSSI)**0.5)
+                        radius = (self._distCoeff[nAnt]/sumRSSI)**0.5
                         self._keyCircles[antPos] = radius
 
             points = set()

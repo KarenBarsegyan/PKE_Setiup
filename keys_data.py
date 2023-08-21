@@ -74,9 +74,10 @@ class KeysData():
     def __init__(self, ant_amount, key_amount):
         self._ant_amount = ant_amount
         self._key_amount = key_amount
-        self._data = np.zeros((((self._ant_amount, self._key_amount, 3))), dtype=int)
-        self._one_key_data = np.zeros((((self._ant_amount, self._key_amount, 3))), dtype=int)
-        self._one_key_average_data = np.zeros((((self._ant_amount, 3))), dtype=int)
+        self._data = np.zeros((((self._ant_amount, self._key_amount, 3))))
+        self._data_ranges = np.zeros((((self._ant_amount, self._key_amount, 3))))
+        self._one_key_data = np.zeros((((self._ant_amount, self._key_amount, 3))))
+        self._one_key_average_data = np.zeros((((self._ant_amount, 3))))
         self._one_key_average_data_amount = []
         self.clearAverage()
 
@@ -91,6 +92,14 @@ class KeysData():
     @data.setter
     def data(self, data):
         self._data = data
+
+    @property
+    def data_ranges(self):
+        return self._data_ranges
+    
+    @data_ranges.setter
+    def data_ranges(self, data_ranges):
+        self._data_ranges = data_ranges
 
     @property
     def auths_ok(self):
@@ -125,7 +134,7 @@ class KeysData():
         self._key_num = num
 
     def makeOneKeyData(self):
-        res_data = np.zeros((((self._ant_amount, 3))), dtype=int)
+        res_data = np.zeros((((self._ant_amount, 3))))
         for nAnt in range(0, self._ant_amount):
             res_data[nAnt][0] = self._data[nAnt][self._key_num][0]
             res_data[nAnt][1] = self._data[nAnt][self._key_num][1]
@@ -144,13 +153,13 @@ class KeysData():
             self._auths_ok += 1
 
     def calcAverage(self):
-        res_data = np.zeros((((self._ant_amount, 3))), dtype=int)
+        res_data = np.zeros((((self._ant_amount, 3))))
         for nAnt in range(self._ant_amount):
             if(self._one_key_average_data_amount[nAnt] > 0):
                 res_data[nAnt] = np.floor_divide(self._one_key_average_data[nAnt], 
                                                  self._one_key_average_data_amount[nAnt])
             else:
-                res_data[nAnt] = np.zeros((((3))), dtype=int)
+                res_data[nAnt] = np.zeros((((3))))
 
         # print("Data Amount: ", self._one_key_average_data_amount)
         # print("Summs: "      , self._one_key_average_data)
@@ -158,22 +167,22 @@ class KeysData():
         return res_data
 
     def calcAverageRMS(self, averageData):
-        res_data = np.zeros(((self._ant_amount)), dtype=int)
+        res_data = np.zeros(((self._ant_amount)))
         for nAnt in range(self._ant_amount):
-            res_data[nAnt] = int((int(int(averageData[nAnt][0])**2) + 
-                                  int(int(averageData[nAnt][1])**2) +
-                                  int(int(averageData[nAnt][2])**2))**0.5)
+            res_data[nAnt] = ((averageData[nAnt][0]**2) + 
+                              (averageData[nAnt][1]**2) + 
+                              (averageData[nAnt][2]**2))**0.5
 
         # print("Average: ", averageData)
         # print("Data: ", res_data)
         return res_data
 
     def calcAverageMED(self, averageData):
-        res_data = np.zeros(((self._ant_amount)), dtype=int)
+        res_data = np.zeros(((self._ant_amount)))
         for nAnt in range(self._ant_amount):
-            res_data[nAnt] = int((averageData[nAnt][0] + 
-                                  averageData[nAnt][1] +
-                                  averageData[nAnt][2])/3)
+            res_data[nAnt] = (averageData[nAnt][0] + 
+                              averageData[nAnt][1] +
+                              averageData[nAnt][2])/3
 
         # print("Average: ", averageData)
         # print("Data: ", res_data)
@@ -194,6 +203,6 @@ class KeysData():
         self._polls_done = 0
 
     def getZeroData(self):
-        return np.zeros((((self._ant_amount, self._key_amount, 3))), dtype=int)
+        return np.zeros((((self._ant_amount, self._key_amount, 3))))
     
     

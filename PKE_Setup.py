@@ -44,7 +44,6 @@ class MainWindow(QMainWindow):
         self._background_colors = [145, 147, 191]
         self._running_animations = dict()
         self._ants_keys_data = KeysData(self._ant_amount, self._key_amount)
-        self._ants_keys_data_ranges = np.zeros((((self._ant_amount, self._key_amount, 3))), dtype=int)
 
         self._initLogger()
         self._initWorksheet()
@@ -1200,55 +1199,43 @@ class MainWindow(QMainWindow):
 
             # Send data to painter object
             self._ants_keys_data.key_num = self._widgetKeyForMeasure.currentIndex()
-            self._ants_keys_data.data = self._bus_worker.Data
-
             self._points_painter.rememberData(self._ants_keys_data, self._auth_status, isPollDone)
+
             # self._printLogData()
 
     def _correctData(self):
-        X1 = 110.0 * 10
-        X2 = 15.7  * 10
-        X3 = 1.67  * 10
-        X4 = 0.205 * 10
-        X5 = 0.025 * 10
+        X1 = 110.0
+        X2 = 15.7
+        X3 = 1.67
+        X4 = 0.205
+        X5 = 0.025
+
+        level100percent = 0.6755
 
         for nAnt in range(self._ant_amount):
             for nKey in range(self._key_amount):
-                dataShow = [0]*3
-                dataShow[0] = self._bus_worker.Data[nAnt][nKey][0] & 0x3FF
-                dataShow[1] = self._bus_worker.Data[nAnt][nKey][1] & 0x3FF
-                dataShow[2] = self._bus_worker.Data[nAnt][nKey][2] & 0x3FF
+                self._ants_keys_data.data[nAnt][nKey][0] = float(self._bus_worker.Data[nAnt][nKey][0] & 0x3FF)
+                self._ants_keys_data.data[nAnt][nKey][1] = float(self._bus_worker.Data[nAnt][nKey][1] & 0x3FF)
+                self._ants_keys_data.data[nAnt][nKey][2] = float(self._bus_worker.Data[nAnt][nKey][2] & 0x3FF)
 
                 for i in range(3):
                     db = self._bus_worker.Data[nAnt][nKey][i] >> 12
-                    self._ants_keys_data_ranges[nAnt][nKey][i] = db
+                    self._ants_keys_data.data_ranges[nAnt][nKey][i] = db
 
                     if   db == 1:
-                        dataShow[i] *= X1
+                        self._ants_keys_data.data[nAnt][nKey][i] *= X1
 
                     elif db == 2:
-                        dataShow[i] *= X2
+                        self._ants_keys_data.data[nAnt][nKey][i] *= X2
 
                     elif db == 3:
-                        dataShow[i] *= X3
+                        self._ants_keys_data.data[nAnt][nKey][i] *= X3
 
                     elif db == 4:
-                        dataShow[i] *= X4
+                        self._ants_keys_data.data[nAnt][nKey][i] *= X4
 
                     elif db == 5:
-                        dataShow[i] *= X5
-
-                X = 1#2.48
-                Y = 1#2.48
-                Z = 1#2.48
-                for i in range(3):
-                    if i == 0:
-                        self._ants_keys_data.data[nAnt][nKey][i] = int(dataShow[i]/X)
-                    if i == 1:
-                        self._ants_keys_data.data[nAnt][nKey][i] = int(dataShow[i]/Y)
-                    if i == 2:
-                        self._ants_keys_data.data[nAnt][nKey][i] = int(dataShow[i]/Z)
-
+                        self._ants_keys_data.data[nAnt][nKey][i] *= X5
 
     def _processData(self, res: bool):
         if not res:
@@ -1285,7 +1272,7 @@ class MainWindow(QMainWindow):
                 data_range = ['']*3
 
                 for i in range(3):
-                    db = self._ants_keys_data_ranges[nAnt][nKey][i]
+                    db = self._ants_keys_data.data_ranges[nAnt][nKey][i]
                     if   db == 1:
                         data_range[i] = '-18dB'
                     elif db == 2:
@@ -1299,18 +1286,15 @@ class MainWindow(QMainWindow):
                     else:
                         data_range[i] = '  ?dB'
 
-                RMS = int((int(dataShow[0])**2 + 
-                           int(dataShow[1])**2 +
-                           int(dataShow[2])**2)**(0.5))
-                
-                MED = int((dataShow[0] + dataShow[1] + dataShow[2])/3)
+                RMS = (dataShow[0]**2 + 
+                       dataShow[1]**2 +
+                       dataShow[2]**2)**(0.5)
 
                 self._RSSI_widgets[nAnt][nKey].setText(
-                    f" X : {' '*(8-len(str(dataShow[0])))}{dataShow[0]} Range: {data_range[0]}\n" +
-                    f" Y : {' '*(8-len(str(dataShow[1])))}{dataShow[1]} Range: {data_range[1]}\n" +
-                    f" Z : {' '*(8-len(str(dataShow[2])))}{dataShow[2]} Range: {data_range[2]}\n" +
-                    f"RMS: {' '*(8-len(str( RMS )))}{ RMS }{' '*13}\0\n" +
-                    f"MED: {' '*(8-len(str( MED )))}{ MED }{' '*13}"
+                    f" X : {' '*(6-len(str(int(dataShow[0]))))}{int(dataShow[0])} Range: {data_range[0]}\n" +
+                    f" Y : {' '*(6-len(str(int(dataShow[1]))))}{int(dataShow[1])} Range: {data_range[1]}\n" +
+                    f" Z : {' '*(6-len(str(int(dataShow[2]))))}{int(dataShow[2])} Range: {data_range[2]}\n" +
+                    f"RMS: {' '*(6-len(str(int(    RMS    ))))}{int(    RMS    )}{' '*13}\0"
                 )
 
     def _printLogData(self): 
