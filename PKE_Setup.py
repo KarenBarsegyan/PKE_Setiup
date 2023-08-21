@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QGroupBox, QSpacerItem, QSlider,
     QFrame, QTabWidget, QScrollArea,
     QComboBox, QMenu, QAction, QFileDialog,
-    QMessageBox
+    QMessageBox, QProgressBar
 )
 from PyQt5.QtGui import (
     QFont, QIntValidator, QIcon
@@ -545,6 +545,10 @@ class MainWindow(QMainWindow):
 
 
         self._RSSI_widgets = []
+        self._RSSI_X_Bar = []
+        self._RSSI_Y_Bar = []
+        self._RSSI_Z_Bar = []
+        self._RSSI_RMS_Bar = []
         
         w = QLabel(f"")
         font = w.font()
@@ -584,6 +588,10 @@ class MainWindow(QMainWindow):
             small_v_layout[nAnt].setSpacing(0)
 
             templist = []
+            templist_X = []
+            templist_Y = []
+            templist_Z = []
+            templist_RMS = []
             key_frame_local = []
             for nKey in range(self._key_amount):
                 key_frame_local.append(QFrame())
@@ -591,6 +599,30 @@ class MainWindow(QMainWindow):
                 k = QLabel()
                 k.setFont(QFont('Courier', 30))
                 k.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+
+                k_X = QProgressBar()
+                k_X.setMaximum(1000)
+                k_X.setValue(0)
+                k_X.setFormat('X')
+                k_X.setAlignment(Qt.AlignHCenter)
+
+                k_Y = QProgressBar()
+                k_Y.setMaximum(1000)
+                k_Y.setValue(0)
+                k_Y.setFormat('Y')
+                k_Y.setAlignment(Qt.AlignCenter)
+
+                k_Z = QProgressBar()
+                k_Z.setMaximum(1000)
+                k_Z.setValue(0)
+                k_Z.setFormat('Z')
+                k_Z.setAlignment(Qt.AlignCenter)
+
+                k_RMS = QProgressBar()
+                k_RMS.setMaximum(1000)
+                k_RMS.setValue(0)
+                k_RMS.setFormat('RMS')
+                k_RMS.setAlignment(Qt.AlignCenter)
                 
                 groupbox = QGroupBox()
                 font = groupbox.font()
@@ -598,8 +630,13 @@ class MainWindow(QMainWindow):
                 groupbox.setFont(font)
                 Box = QVBoxLayout()
                 Box.setSpacing(0)
+                Box.setAlignment(Qt.AlignCenter)
                 groupbox.setLayout(Box)
                 Box.addWidget(k)
+                Box.addWidget(k_X)
+                Box.addWidget(k_Y)
+                Box.addWidget(k_Z)
+                Box.addWidget(k_RMS)
 
                 l = QVBoxLayout()
                 l.addWidget(groupbox)
@@ -610,10 +647,18 @@ class MainWindow(QMainWindow):
                 small_v_layout[nAnt].setStretch(nKey+1, 1)
                 
                 templist.append(k)
+                templist_X.append(k_X)
+                templist_Y.append(k_Y)
+                templist_Z.append(k_Z)
+                templist_RMS.append(k_RMS)
 
             self._key_frames.append(key_frame_local)
 
             self._RSSI_widgets.append(templist)
+            self._RSSI_X_Bar.append(templist_X)
+            self._RSSI_Y_Bar.append(templist_Y)
+            self._RSSI_Z_Bar.append(templist_Z)
+            self._RSSI_RMS_Bar.append(templist_RMS)
 
         w = QWidget()
         w.setLayout(big_h_layout)
@@ -1210,8 +1255,6 @@ class MainWindow(QMainWindow):
         X4 = 0.205
         X5 = 0.025
 
-        level100percent = 0.6755
-
         for nAnt in range(self._ant_amount):
             for nKey in range(self._key_amount):
                 self._ants_keys_data.data[nAnt][nKey][0] = float(self._bus_worker.Data[nAnt][nKey][0] & 0x3FF)
@@ -1296,6 +1339,24 @@ class MainWindow(QMainWindow):
                     f" Z : {' '*(6-len(str(int(dataShow[2]))))}{int(dataShow[2])} Range: {data_range[2]}\n" +
                     f"RMS: {' '*(6-len(str(int(    RMS    ))))}{int(    RMS    )}{' '*13}\0"
                 )
+                level100percent = 67550
+                level100percentRMS = 116000
+
+                coeffProp  = 7.5
+
+                x   = 1000 - min( 1000, (level100percent    / dataShow[0])**(0.5) * coeffProp )
+                y   = 1000 - min( 1000, (level100percent    / dataShow[1])**(0.5) * coeffProp )
+                z   = 1000 - min( 1000, (level100percent    / dataShow[2])**(0.5) * coeffProp )
+                rms = 1000 - min( 1000, (level100percentRMS /     RMS    )**(0.5) * coeffProp )
+
+                # if(nAnt == 1 and nKey == 0):
+                #     print(x, y, z, rms)
+
+                if x != 0 or y != 0 or z != 0:
+                    self._RSSI_X_Bar[nAnt][nKey].setValue(int(x))
+                    self._RSSI_Y_Bar[nAnt][nKey].setValue(int(y))
+                    self._RSSI_Z_Bar[nAnt][nKey].setValue(int(z))
+                    self._RSSI_RMS_Bar[nAnt][nKey].setValue(int(rms))
 
     def _printLogData(self): 
         time_hms = time.strftime("%H:%M:%S", time.localtime())
