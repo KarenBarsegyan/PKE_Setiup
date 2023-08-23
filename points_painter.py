@@ -275,7 +275,7 @@ class PointsPainter(QThread):
 
                     if sumRSSI > 0:
                         dist = ((gPos[0] - antPos[0])**2 + (gPos[1] - antPos[1])**2)**0.5
-                        coeff += sumRSSI*dist*dist
+                        coeff += (sumRSSI**(0.4)) * dist
                         amountOfCalcs += 1
 
                     # print(f"ANT: {nAnt} \t RSSI: {sumRSSI} \t Dist: {int(dist)} \t Coeff: {int(sumRSSI*dist*dist)}")
@@ -301,7 +301,7 @@ class PointsPainter(QThread):
 
                 if sumRSSI > 0:
                     if nAnt in self._distCoeff:
-                        radius = (self._distCoeff[nAnt]/sumRSSI)**0.5
+                        radius = ((sumRSSI)**(-0.4)) * self._distCoeff[nAnt]
                         self._keyCircles[antPos] = radius
 
             points = set()

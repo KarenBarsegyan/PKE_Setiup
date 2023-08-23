@@ -1344,19 +1344,33 @@ class MainWindow(QMainWindow):
 
                 coeffProp  = 7.5
 
-                x   = 1000 - min( 1000, (level100percent    / dataShow[0])**(0.5) * coeffProp )
-                y   = 1000 - min( 1000, (level100percent    / dataShow[1])**(0.5) * coeffProp )
-                z   = 1000 - min( 1000, (level100percent    / dataShow[2])**(0.5) * coeffProp )
-                rms = 1000 - min( 1000, (level100percentRMS /     RMS    )**(0.5) * coeffProp )
-
-                # if(nAnt == 1 and nKey == 0):
-                #     print(x, y, z, rms)
+                if (dataShow[0] != 0):
+                    x   = 1000 - min( 1000, (level100percent    / dataShow[0])**(0.5) * coeffProp )
+                else: 
+                    x = 0
+                if (dataShow[1] != 0):
+                    y   = 1000 - min( 1000, (level100percent    / dataShow[1])**(0.5) * coeffProp )
+                else: 
+                    y = 0
+                if (dataShow[2] != 0):
+                    z   = 1000 - min( 1000, (level100percent    / dataShow[2])**(0.5) * coeffProp )
+                else: 
+                    z = 0
+                if (RMS != 0):
+                    rms = 1000 - min( 1000, (level100percentRMS /     RMS    )**(0.5) * coeffProp )
+                else: 
+                    rms = 0
 
                 if x != 0 or y != 0 or z != 0:
                     self._RSSI_X_Bar[nAnt][nKey].setValue(int(x))
                     self._RSSI_Y_Bar[nAnt][nKey].setValue(int(y))
                     self._RSSI_Z_Bar[nAnt][nKey].setValue(int(z))
                     self._RSSI_RMS_Bar[nAnt][nKey].setValue(int(rms))
+
+                    self._RSSI_X_Bar[nAnt][nKey].update()
+                    self._RSSI_Y_Bar[nAnt][nKey].update()
+                    self._RSSI_Z_Bar[nAnt][nKey].update()
+                    self._RSSI_RMS_Bar[nAnt][nKey].update()
 
     def _printLogData(self): 
         time_hms = time.strftime("%H:%M:%S", time.localtime())
