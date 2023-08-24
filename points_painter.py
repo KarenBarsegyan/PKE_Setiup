@@ -271,7 +271,7 @@ class PointsPainter(QThread):
                     for i in range(3):
                         sumRSSI += (self._greenPoints[gPos].data[nAnt][i])**2
 
-                    sumRSSI = round(sumRSSI ** 0.5)
+                    sumRSSI = sumRSSI ** 0.5
 
                     if sumRSSI > 0:
                         dist = ((gPos[0] - antPos[0])**2 + (gPos[1] - antPos[1])**2)**0.5
@@ -288,8 +288,39 @@ class PointsPainter(QThread):
         # except Exception as exc:
         #     self._logger.warning(f"No data to calibrate: {exc}")
 
+    def _conv(self, num):
+        return (num)**(-0.5)
+
     def _calcDistance(self):
         # try:
+            dist_to_mesh_coeff = 8
+
+            distances = dict()
+    
+            distances[self._conv(9050)] = 200
+            distances[self._conv(1250)] = 400
+            distances[self._conv(440) ] = 600
+            distances[self._conv(227) ] = 800
+            distances[self._conv(142) ] = 1000
+            distances[self._conv(92)  ] = 1200
+            distances[self._conv(64)  ] = 1400
+            distances[self._conv(48)  ] = 1600
+            distances[self._conv(38)  ] = 1800
+            distances[self._conv(30)  ] = 2000
+            distances[self._conv(23)  ] = 2200
+            distances[self._conv(18)  ] = 2400
+            distances[self._conv(14)  ] = 2600
+            distances[self._conv(10)  ] = 2800
+            distances[self._conv(7.7) ] = 3000
+            distances[self._conv(6.2) ] = 3200
+            distances[self._conv(5.5) ] = 3400
+            distances[self._conv(5)   ] = 3600
+            distances[self._conv(4.4) ] = 3800
+            distances[self._conv(3.45)] = 4000
+
+            min_rssi = min(distances.keys())
+            max_rssi = max(distances.keys())
+
             self._keyCircles.clear()
 
             for antPos in self._antPoints:
@@ -297,12 +328,38 @@ class PointsPainter(QThread):
                 sumRSSI = 0
                 for i in range(3):
                     sumRSSI += self._ants_keys_data.one_key_data[nAnt][i]**2
-                sumRSSI = round(sumRSSI ** (0.5))
+                sumRSSI = sumRSSI ** (0.5)
 
                 if sumRSSI > 0:
-                    if nAnt in self._distCoeff:
-                        radius = ((sumRSSI)**(-0.4)) * self._distCoeff[nAnt]
-                        self._keyCircles[antPos] = radius
+                    calcDist = sumRSSI ** (-0.5)
+                    res = 0
+                    if max_rssi < calcDist:
+                        res = calcDist / max_rssi * distances[max_rssi]
+                    elif min_rssi > calcDist:
+                        res = calcDist / min_rssi * distances[min_rssi]
+                    else:
+                        min_closest = max_rssi
+                        max_closest = min_rssi
+                        for key in distances.keys():
+                            if key - calcDist > 0 and \
+                               key - calcDist < min_closest - calcDist:
+                                min_closest = key
+                               
+                            if calcDist - key > 0 and \
+                               calcDist - key < calcDist - max_closest:
+                                max_closest = key
+                    
+                        k = (distances[min_closest] - distances[max_closest]) / (min_closest-max_closest)
+
+                        b = distances[min_closest] - k*min_closest
+
+                        res = k*calcDist + b
+                    
+                    # print("RSSI   = ", self.testRssi)
+                    # print("Dist   = ", res)
+                    # print()
+
+                    self._keyCircles[antPos] = res / dist_to_mesh_coeff
 
             points = set()
             self._bluePoints.clear()
