@@ -291,40 +291,97 @@ class PointsPainter(QThread):
     def _conv(self, num):
         return (num)**(-0.5)
 
+    def _calc_dist_dict(self, nAnt):
+        self._dist_to_mesh_coeff = 0
+        self._distances = dict()
+        self._min_rssi = 0
+        self._min_rssi = 0
+
+        # print(nAnt)
+        if nAnt == 0:
+            # Door ant
+            self._dist_to_mesh_coeff = 9.5
+
+            self._distances[self._conv(6520)] = 200
+            self._distances[self._conv(1135)] = 400
+            self._distances[self._conv(435) ] = 600
+            self._distances[self._conv(231) ] = 800
+            self._distances[self._conv(152) ] = 1000
+            self._distances[self._conv(105) ] = 1200
+            self._distances[self._conv(81)  ] = 1400
+            self._distances[self._conv(68)  ] = 1600
+            self._distances[self._conv(55)  ] = 1800
+            self._distances[self._conv(48)  ] = 2000
+            self._distances[self._conv(35)  ] = 2200
+            self._distances[self._conv(24)  ] = 2400
+            self._distances[self._conv(17)  ] = 2600
+            self._distances[self._conv(14)  ] = 2800
+            self._distances[self._conv(12)  ] = 3000
+            self._distances[self._conv(10.2)] = 3200
+            self._distances[self._conv(6.5) ] = 3400
+            self._distances[self._conv(4.2) ] = 3600
+            self._distances[self._conv(4)   ] = 3800
+            self._distances[self._conv(3.7) ] = 4000
+
+        if nAnt == 2:
+            # Bamper ant
+            self._dist_to_mesh_coeff = 10
+
+            self._distances[self._conv(3060)] = 200
+            self._distances[self._conv(491) ] = 400
+            self._distances[self._conv(188) ] = 600
+            self._distances[self._conv(110) ] = 800
+            self._distances[self._conv(68)  ] = 1000
+            self._distances[self._conv(48)  ] = 1200
+            self._distances[self._conv(37)  ] = 1400
+            self._distances[self._conv(30)  ] = 1600
+            self._distances[self._conv(25)  ] = 1800
+            self._distances[self._conv(21)  ] = 2000
+            self._distances[self._conv(17)  ] = 2200
+            self._distances[self._conv(12)  ] = 2400
+            self._distances[self._conv(9)   ] = 2600
+            self._distances[self._conv(7)   ] = 2800
+            self._distances[self._conv(6.9) ] = 3000
+            self._distances[self._conv(5.5) ] = 3200
+            self._distances[self._conv(3.4) ] = 3400
+
+
+        if nAnt == 3:
+            # Console ant
+            self._dist_to_mesh_coeff = 9
+            
+            self._distances[self._conv(3160)] = 200
+            self._distances[self._conv(445) ] = 400
+            self._distances[self._conv(172) ] = 600
+            self._distances[self._conv(100) ] = 800
+            self._distances[self._conv(65)  ] = 1000
+            self._distances[self._conv(45)  ] = 1200
+            self._distances[self._conv(35)  ] = 1400
+            self._distances[self._conv(27)  ] = 1600
+            self._distances[self._conv(23)  ] = 1800
+            self._distances[self._conv(19)  ] = 2000
+            self._distances[self._conv(15)  ] = 2200
+            self._distances[self._conv(10)  ] = 2400
+            self._distances[self._conv(8)   ] = 2600
+            self._distances[self._conv(6.5) ] = 2800
+            self._distances[self._conv(6)   ] = 3000
+            self._distances[self._conv(4.8) ] = 3200
+            self._distances[self._conv(3)   ] = 3400
+
+
+        try:
+            self._min_rssi = min(self._distances.keys())
+            self._max_rssi = max(self._distances.keys())
+        except: 
+            print("loh")
+
     def _calcDistance(self):
         # try:
-            dist_to_mesh_coeff = 8
-
-            distances = dict()
-    
-            distances[self._conv(9050)] = 200
-            distances[self._conv(1250)] = 400
-            distances[self._conv(440) ] = 600
-            distances[self._conv(227) ] = 800
-            distances[self._conv(142) ] = 1000
-            distances[self._conv(92)  ] = 1200
-            distances[self._conv(64)  ] = 1400
-            distances[self._conv(48)  ] = 1600
-            distances[self._conv(38)  ] = 1800
-            distances[self._conv(30)  ] = 2000
-            distances[self._conv(23)  ] = 2200
-            distances[self._conv(18)  ] = 2400
-            distances[self._conv(14)  ] = 2600
-            distances[self._conv(10)  ] = 2800
-            distances[self._conv(7.7) ] = 3000
-            distances[self._conv(6.2) ] = 3200
-            distances[self._conv(5.5) ] = 3400
-            distances[self._conv(5)   ] = 3600
-            distances[self._conv(4.4) ] = 3800
-            distances[self._conv(3.45)] = 4000
-
-            min_rssi = min(distances.keys())
-            max_rssi = max(distances.keys())
-
             self._keyCircles.clear()
 
             for antPos in self._antPoints:
-                nAnt = self._antPoints[antPos]   
+                nAnt = self._antPoints[antPos] 
+                self._calc_dist_dict(nAnt)
                 sumRSSI = 0
                 for i in range(3):
                     sumRSSI += self._ants_keys_data.one_key_data[nAnt][i]**2
@@ -333,14 +390,14 @@ class PointsPainter(QThread):
                 if sumRSSI > 0:
                     calcDist = sumRSSI ** (-0.5)
                     res = 0
-                    if max_rssi < calcDist:
-                        res = calcDist / max_rssi * distances[max_rssi]
-                    elif min_rssi > calcDist:
-                        res = calcDist / min_rssi * distances[min_rssi]
+                    if self._max_rssi < calcDist:
+                        res = calcDist / self._max_rssi * self._distances[self._max_rssi]
+                    elif self._min_rssi > calcDist:
+                        res = calcDist / self._min_rssi * self._distances[self._min_rssi]
                     else:
-                        min_closest = max_rssi
-                        max_closest = min_rssi
-                        for key in distances.keys():
+                        min_closest = self._max_rssi
+                        max_closest = self._min_rssi
+                        for key in self._distances.keys():
                             if key - calcDist > 0 and \
                                key - calcDist < min_closest - calcDist:
                                 min_closest = key
@@ -349,9 +406,9 @@ class PointsPainter(QThread):
                                calcDist - key < calcDist - max_closest:
                                 max_closest = key
                     
-                        k = (distances[min_closest] - distances[max_closest]) / (min_closest-max_closest)
+                        k = (self._distances[min_closest] - self._distances[max_closest]) / (min_closest-max_closest)
 
-                        b = distances[min_closest] - k*min_closest
+                        b = self._distances[min_closest] - k*min_closest
 
                         res = k*calcDist + b
                     
@@ -359,7 +416,7 @@ class PointsPainter(QThread):
                     # print("Dist   = ", res)
                     # print()
 
-                    self._keyCircles[antPos] = res / dist_to_mesh_coeff
+                    self._keyCircles[antPos] = res / self._dist_to_mesh_coeff
 
             points = set()
             self._bluePoints.clear()
