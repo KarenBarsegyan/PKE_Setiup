@@ -1337,7 +1337,7 @@ class MainWindow(QMainWindow):
                     f" X : {' '*(6-len(str(int(dataShow[0]))))}{int(dataShow[0])} Range: {data_range[0]}\n" +
                     f" Y : {' '*(6-len(str(int(dataShow[1]))))}{int(dataShow[1])} Range: {data_range[1]}\n" +
                     f" Z : {' '*(6-len(str(int(dataShow[2]))))}{int(dataShow[2])} Range: {data_range[2]}\n" +
-                    f"RMS: {' '*(6-len(str((    RMS    ))))}{(    RMS    )}{' '*13}\0"
+                    f"RMS: {' '*(6-len(str(int(    RMS    ))))}{int(    RMS    )}{' '*13}\0"
                 )
                 level100percent = 67550
                 level100percentRMS = 116000
