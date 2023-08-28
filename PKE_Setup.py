@@ -5,7 +5,8 @@ from PyQt5.QtWidgets import (
     QGroupBox, QSpacerItem, QSlider,
     QFrame, QTabWidget, QScrollArea,
     QComboBox, QMenu, QAction, QFileDialog,
-    QMessageBox, QProgressBar
+    QMessageBox, QProgressBar, QRadioButton,
+    QButtonGroup
 )
 from PyQt5.QtGui import (
     QFont, QIntValidator, QIcon
@@ -78,6 +79,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, *args, **kwargs):
         # Say hardware to stop polling
+        self._bus_worker.auth_mode = 2
+        self._bus_worker.sendData()
         self._stopPolling()
 
         # Save window size and pos
@@ -198,6 +201,7 @@ class MainWindow(QMainWindow):
         # Order here == order in layout for widgets
         self._setCAN()
         self._setStatuses()
+        self._setModes()
         self._setStartPolling()
         self._setLogs()
         self._setAntCheckBox()
@@ -362,7 +366,7 @@ class MainWindow(QMainWindow):
         self._updateKeyMask()
 
         #  Take on auth
-        self._widget_auth_checkbox.setChecked(True)
+        self._mode_but_with_auth.setChecked(True)
         self._bus_worker.auth_mode = 1
 
         # Set current to 500mA
@@ -406,10 +410,13 @@ class MainWindow(QMainWindow):
 
             # Restore flag to perform auth or not
             if keys_ants_data['auth'] == 0:
-                self._widget_auth_checkbox.setChecked(False)
+                self._mode_but_no_auth.setChecked(True)
                 self._bus_worker.auth_mode = 0
+            elif keys_ants_data['auth'] == 1:
+                self._mode_but_with_auth.setChecked(True)
+                self._bus_worker.auth_mode = 1
             else:
-                self._widget_auth_checkbox.setChecked(True)
+                self._mode_but_polling.setChecked(True)
                 self._bus_worker.auth_mode = 1
 
             # Restore pollings amount line
@@ -462,8 +469,10 @@ class MainWindow(QMainWindow):
             if self._widget_key_checkboxes[nCnt].isChecked():
                 to_json['keys'].append(nCnt)
 
-        if self._widget_auth_checkbox.isChecked(): 
+        if self._mode_but_with_auth.isChecked(): 
             to_json['auth'] = 1
+        elif self._mode_but_polling.isChecked(): 
+            to_json['auth'] = 2
 
         # if text() == '' exception would be risen
         val = 0
@@ -729,8 +738,9 @@ class MainWindow(QMainWindow):
         box.addLayout(h_layout)
 
         self._last_key_background = 0
+        self._last_key_animation_in_progress = False
         self._last_key_animation = QSequentialAnimationGroup()
-        self._setBackgroundAnimation(self._last_key_animation, b"last_key_background")
+        self._setBackgroundAnimation(self._last_key_animation, b"last_key_background", self._endLastKeyAnimation)
 
 
         h_layout = QHBoxLayout()
@@ -744,21 +754,50 @@ class MainWindow(QMainWindow):
         box.addLayout(h_layout)
         
         self._auth_background = 0
+        self._auth_state_animation_in_progress = False
         self._auth_state_animation = QSequentialAnimationGroup()
-        self._setBackgroundAnimation(self._auth_state_animation, b"auth_background")
+        self._setBackgroundAnimation(self._auth_state_animation, b"auth_background", self._endAuthStateAnimation)
 
-        h_layout = QHBoxLayout()
-        self._widget_auth_checkbox = QCheckBox()
-        font = self._widget_auth_checkbox.font()
+        self._layout_widgets.addWidget(groupbox)
+
+    def _setModes(self):
+        groupbox = QGroupBox("Modes")
+        font = groupbox.font()
+        font.setPointSize(10)
+        groupbox.setFont(font)
+        box = QVBoxLayout()
+        box.setSpacing(15)
+        groupbox.setLayout(box)
+
+        v_layout = QVBoxLayout()
+
+        self._mode_but_no_auth = QRadioButton("Usual no Auth")
+        font = self._mode_but_no_auth.font()
         font.setPointSize(11)
-        self._widget_auth_checkbox.setFont(font)
-        self._widget_auth_checkbox.setChecked(True)
-        self._widget_auth_checkbox.setText("Perform auth")
-        self._widget_auth_checkbox.stateChanged.connect(self._performAuthStateHandler)
-        h_layout.addWidget(self._widget_auth_checkbox)
+        self._mode_but_no_auth.setFont(font)
 
-        h_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        box.addLayout(h_layout)
+        self._mode_but_with_auth = QRadioButton("Usual with Auth")
+        font = self._mode_but_with_auth.font()
+        font.setPointSize(11)
+        self._mode_but_with_auth.setFont(font)
+
+        self._mode_but_polling = QRadioButton("Repeat Polling\n3 ants max")
+        font = self._mode_but_polling.font()
+        font.setPointSize(11)
+        self._mode_but_polling.setFont(font)
+
+        cs_group = QButtonGroup(v_layout)
+        cs_group.addButton(self._mode_but_no_auth)
+        cs_group.addButton(self._mode_but_with_auth)
+        cs_group.addButton(self._mode_but_polling)
+        cs_group.buttonClicked.connect(self._performAuthStateHandler)
+
+        v_layout.addWidget(self._mode_but_no_auth)
+        v_layout.addWidget(self._mode_but_with_auth)
+        v_layout.addWidget(self._mode_but_polling)
+
+        v_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        box.addLayout(v_layout)
 
         self._layout_widgets.addWidget(groupbox)
 
@@ -799,8 +838,9 @@ class MainWindow(QMainWindow):
         box.addLayout(h_layout)
 
         self._pollings_done_background = 0
+        self._pollings_done_animation_in_progress = False
         self._pollings_done_animation = QSequentialAnimationGroup()
-        self._setBackgroundAnimation(self._pollings_done_animation, b"pollings_done_background")
+        self._setBackgroundAnimation(self._pollings_done_animation, b"pollings_done_background", self._endPollingsDoneAnimation)
 
         self._widget_start_polling_button = QPushButton("Start Polling")
         font = self._widget_start_polling_button.font()
@@ -848,8 +888,9 @@ class MainWindow(QMainWindow):
                 added = False
 
         self._ant_imps_background = 0
-        self._antImpsAnimation = QSequentialAnimationGroup()
-        self._setBackgroundAnimation(self._antImpsAnimation, b"ant_imps_background")
+        self._ant_imps_animation_in_progress = False
+        self._ant_imps_animation = QSequentialAnimationGroup()
+        self._setBackgroundAnimation(self._ant_imps_animation, b"ant_imps_background", self._endAntImpsAnimation)
 
         self._widget_diag_statuses_combobox = QComboBox()
         box.addWidget(self._widget_diag_statuses_combobox)
@@ -1104,10 +1145,12 @@ class MainWindow(QMainWindow):
 
     def _lastKeyUpdateCallback(self, lastPressedKey):
         self._widget_last_key_label.setText(f"Last Key Pressed Num: {lastPressedKey}\t\t")
-        self._last_key_animation.start()
+        if (not self._last_key_animation_in_progress):
+            self._last_key_animation_in_progress = True
+            self._last_key_animation.start()
 
     def _lastAuthUpdateCallback(self, auth_status):
-        if self._widget_auth_checkbox.isChecked() and self._is_polling_in_progress:
+        if self._mode_but_with_auth.isChecked() and self._is_polling_in_progress:
             if auth_status:
                 self._auth_status = True
                 self._widget_auth_state_label.setText(f'Auth: OK')
@@ -1115,13 +1158,17 @@ class MainWindow(QMainWindow):
                 self._auth_status = False
                 self._widget_auth_state_label.setText(f'Auth: Fail')
 
-            self._auth_state_animation.start()
+            if (not self._auth_state_animation_in_progress):
+                self._auth_state_animation_in_progress = True
+                self._auth_state_animation.start()
 
     def _antImpsUpdateCallback(self, imps: list):
         for i in range(len(imps)):
             self._widget_ant_imps_labels[i].setText(f'Ant {i+1}: {imps[i]} Ω')
-            
-        self._antImpsAnimation.start()
+        
+        if (not self._ant_imps_animation_in_progress):
+            self._ant_imps_animation_in_progress = True    
+            self._ant_imps_animation.start()
 
     def _antDiagUpdateCallback(self, statuses: list):
         self._widget_diag_statuses_combobox.clear()
@@ -1200,10 +1247,16 @@ class MainWindow(QMainWindow):
         self._bus_worker.perform_diag()
 
     def _performAuthStateHandler(self):
-        if self._widget_auth_checkbox.isChecked():
+        if self._mode_but_with_auth.isChecked():
             self._bus_worker.auth_mode = 1
+
         else:
-            self._bus_worker.auth_mode = 0
+            if self._mode_but_no_auth.isChecked():
+                self._bus_worker.auth_mode = 0
+            else:
+                self._bus_worker.auth_mode = 2
+                self._stopPolling()
+
             self._auth_status = False
             self._auth_state_animation.stop()
             self._widget_auth_state_label.setText(f'Auth: None\t')
@@ -1224,7 +1277,10 @@ class MainWindow(QMainWindow):
 
     def _allDataReceivedCallback(self):
         if self._is_polling_in_progress:
-            self._pollings_done_animation.start()
+
+            if (not self._pollings_done_animation_in_progress):
+                self._pollings_done_animation_in_progress = True
+                self._pollings_done_animation.start()
 
             self._pollings_done += 1
             if self._pollings_done > 250:
@@ -1285,11 +1341,9 @@ class MainWindow(QMainWindow):
             # Just set all widgets to standart state
             self._widget_msg_period_label.setText("Msg Period: 0 ms")
             self._widget_auth_state_label.setText(f'Auth: None\t')
-            self._widget_auth_state_label.setStyleSheet("color: black;")
             self._widget_last_key_label.setText(f"Last Key Pressed Num: None\t")
-            # data = self._ants_keys_data.getZeroData()
             self._widget_pollings_done_label.setText(f"Target: - ; Done: -")
-            self._widget_pollings_done_label.setStyleSheet("color: black;")
+
             self._pollings_done = 0
             for i in range(6):
                 self._widget_ant_imps_labels[i].setText(f'Ant {i+1}: {0} Ω')
@@ -1297,11 +1351,6 @@ class MainWindow(QMainWindow):
             
         else:
             self._widget_msg_period_label.setText(f"Msg Period: {int(self._bus_worker.TimeBetweenMsgs)} ms")
-
-            # If done == needed then green color woold be setted incide animation
-            # But if we just have started polling, we have to set black color manually
-            if (self._pollings_done != self._pollings_needed):
-                self._widget_pollings_done_label.setStyleSheet("color: black;")
 
             # Check if PKE block has done as much polling, as needed
             if (not self._repeat_polling):
@@ -1446,7 +1495,7 @@ class MainWindow(QMainWindow):
 
         self._row_single += 9
 
-    def _setBackgroundAnimation(self, animation, func_name):
+    def _setBackgroundAnimation(self, animation, func_name, callback_name):
         animation_1 = QPropertyAnimation(self, func_name, self)
         # animation_1.setEasingCurve(QEasingCurve.OutCubic)
         animation_1.setDuration(200)
@@ -1461,6 +1510,25 @@ class MainWindow(QMainWindow):
 
         animation.addAnimation(animation_1)
         animation.addAnimation(animation_2)
+        animation.finished.connect(callback_name)
+
+    def _endLastKeyAnimation(self):
+        QTimer.singleShot(300, self._endLastKeyAnimationSecond)
+    def _endLastKeyAnimationSecond(self):
+        self._last_key_animation_in_progress = False
+
+    def _endAuthStateAnimation(self):
+        QTimer.singleShot(300, self._endAuthStateAnimationSecond)
+    def _endAuthStateAnimationSecond(self):
+        self._auth_state_animation_in_progress = False
+
+    def _endPollingsDoneAnimation(self):
+        QTimer.singleShot(300, self._endPollingsDoneAnimationSecond)
+    def _endPollingsDoneAnimationSecond(self):
+        self._pollings_done_animation_in_progress = False
+
+    def _endAntImpsAnimation(self):
+        self._ant_imps_animation_in_progress = False
 
     @pyqtProperty(float)
     def auth_background(self):
