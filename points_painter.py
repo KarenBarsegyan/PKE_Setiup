@@ -32,8 +32,8 @@ class PointsPainter(QThread):
     class PointType(int):
         Green = 1
         Yellow = 2 
-        Red = 3 
-        Ant = 5
+        Red = 3
+        Ant = 4
 
     def __init__(self, askForPollingFunc, parent=None):
         QThread.__init__(self, parent)
@@ -44,6 +44,9 @@ class PointsPainter(QThread):
         self._yellowPoints = dict()
         self._redPoints = dict()
         self._bluePoints = dict()
+        self._purpleZoneRects = dict()
+        self._purpleZoneRectsBegin = dict()
+        self._startedZoneRect = False
         self._darkRedPoints = dict()
         self._keyCircles = dict()
         self._antPoints = dict()
@@ -194,6 +197,10 @@ class PointsPainter(QThread):
         self._setAntAction.setMenu(self._setAntMenu)
         self._setAntMenu.aboutToShow.connect(self._populateSetAnts)
 
+        self._setZoneAction = QAction(self)
+        self._setZoneAction.setText("Set Zone")
+        self._setZoneAction.triggered.connect(self._make_zones_rects)
+
         separator = QAction(self)
         separator.setSeparator(True)
 
@@ -208,6 +215,7 @@ class PointsPainter(QThread):
         self._calibrationLabel.addAction(self._writeRSSIAction)
         self._calibrationLabel.addAction(self._deletePointAction)
         self._calibrationLabel.addAction(self._setAntAction)
+        self._calibrationLabel.addAction(self._setZoneAction)
         self._calibrationLabel.addAction(separator)
         self._calibrationLabel.addAction(self._ant_num_action)
 
@@ -286,10 +294,10 @@ class PointsPainter(QThread):
         # except Exception as exc:
         #     self._logger.warning(f"No data to calibrate: {exc}")
 
-    def _conv(self, num):
+    def _convNum(self, num):
         return (num)**(-0.5)
 
-    def _calc_dist_dict(self, nAnt):
+    def _calcDistFromCalibrationData(self, nAnt):
         self._dist_to_mesh_coeff = 0
         self._distances = dict()
         self._min_rssi = 0
@@ -300,71 +308,71 @@ class PointsPainter(QThread):
             # Door ant
             self._dist_to_mesh_coeff = 9.5
 
-            self._distances[self._conv(6520)] = 200
-            self._distances[self._conv(1135)] = 400
-            self._distances[self._conv(435) ] = 600
-            self._distances[self._conv(231) ] = 800
-            self._distances[self._conv(152) ] = 1000
-            self._distances[self._conv(105) ] = 1200
-            self._distances[self._conv(81)  ] = 1400
-            self._distances[self._conv(68)  ] = 1600
-            self._distances[self._conv(55)  ] = 1800
-            self._distances[self._conv(48)  ] = 2000
-            self._distances[self._conv(35)  ] = 2200
-            self._distances[self._conv(24)  ] = 2400
-            self._distances[self._conv(17)  ] = 2600
-            self._distances[self._conv(14)  ] = 2800
-            self._distances[self._conv(12)  ] = 3000
-            self._distances[self._conv(10.2)] = 3200
-            self._distances[self._conv(6.5) ] = 3400
-            self._distances[self._conv(4.2) ] = 3600
-            self._distances[self._conv(4)   ] = 3800
-            self._distances[self._conv(3.7) ] = 4000
+            self._distances[self._convNum(6520)] = 200
+            self._distances[self._convNum(1135)] = 400
+            self._distances[self._convNum(435) ] = 600
+            self._distances[self._convNum(231) ] = 800
+            self._distances[self._convNum(152) ] = 1000
+            self._distances[self._convNum(105) ] = 1200
+            self._distances[self._convNum(81)  ] = 1400
+            self._distances[self._convNum(68)  ] = 1600
+            self._distances[self._convNum(55)  ] = 1800
+            self._distances[self._convNum(48)  ] = 2000
+            self._distances[self._convNum(35)  ] = 2200
+            self._distances[self._convNum(24)  ] = 2400
+            self._distances[self._convNum(17)  ] = 2600
+            self._distances[self._convNum(14)  ] = 2800
+            self._distances[self._convNum(12)  ] = 3000
+            self._distances[self._convNum(10.2)] = 3200
+            self._distances[self._convNum(6.5) ] = 3400
+            self._distances[self._convNum(4.2) ] = 3600
+            self._distances[self._convNum(4)   ] = 3800
+            self._distances[self._convNum(3.7) ] = 4000
 
         if nAnt == 2:
             # Bamper ant
             self._dist_to_mesh_coeff = 10
 
-            self._distances[self._conv(3060)] = 200
-            self._distances[self._conv(491) ] = 400
-            self._distances[self._conv(188) ] = 600
-            self._distances[self._conv(110) ] = 800
-            self._distances[self._conv(68)  ] = 1000
-            self._distances[self._conv(48)  ] = 1200
-            self._distances[self._conv(37)  ] = 1400
-            self._distances[self._conv(30)  ] = 1600
-            self._distances[self._conv(25)  ] = 1800
-            self._distances[self._conv(21)  ] = 2000
-            self._distances[self._conv(17)  ] = 2200
-            self._distances[self._conv(12)  ] = 2400
-            self._distances[self._conv(9)   ] = 2600
-            self._distances[self._conv(7)   ] = 2800
-            self._distances[self._conv(6.9) ] = 3000
-            self._distances[self._conv(5.5) ] = 3200
-            self._distances[self._conv(3.4) ] = 3400
+            self._distances[self._convNum(3060)] = 200
+            self._distances[self._convNum(491) ] = 400
+            self._distances[self._convNum(188) ] = 600
+            self._distances[self._convNum(110) ] = 800
+            self._distances[self._convNum(68)  ] = 1000
+            self._distances[self._convNum(48)  ] = 1200
+            self._distances[self._convNum(37)  ] = 1400
+            self._distances[self._convNum(30)  ] = 1600
+            self._distances[self._convNum(25)  ] = 1800
+            self._distances[self._convNum(21)  ] = 2000
+            self._distances[self._convNum(17)  ] = 2200
+            self._distances[self._convNum(12)  ] = 2400
+            self._distances[self._convNum(9)   ] = 2600
+            self._distances[self._convNum(7)   ] = 2800
+            self._distances[self._convNum(6.9) ] = 3000
+            self._distances[self._convNum(5.5) ] = 3200
+            self._distances[self._convNum(3.4) ] = 3400
 
 
         if nAnt == 3:
             # Console ant
             self._dist_to_mesh_coeff = 9
             
-            self._distances[self._conv(3160)] = 200
-            self._distances[self._conv(445) ] = 400
-            self._distances[self._conv(172) ] = 600
-            self._distances[self._conv(100) ] = 800
-            self._distances[self._conv(65)  ] = 1000
-            self._distances[self._conv(45)  ] = 1200
-            self._distances[self._conv(35)  ] = 1400
-            self._distances[self._conv(27)  ] = 1600
-            self._distances[self._conv(23)  ] = 1800
-            self._distances[self._conv(19)  ] = 2000
-            self._distances[self._conv(15)  ] = 2200
-            self._distances[self._conv(10)  ] = 2400
-            self._distances[self._conv(8)   ] = 2600
-            self._distances[self._conv(6.5) ] = 2800
-            self._distances[self._conv(6)   ] = 3000
-            self._distances[self._conv(4.8) ] = 3200
-            self._distances[self._conv(3)   ] = 3400
+            self._distances[self._convNum(3160)] = 200
+            self._distances[self._convNum(445) ] = 400
+            self._distances[self._convNum(172) ] = 600
+            self._distances[self._convNum(100) ] = 800
+            self._distances[self._convNum(65)  ] = 1000
+            self._distances[self._convNum(45)  ] = 1200
+            self._distances[self._convNum(35)  ] = 1400
+            self._distances[self._convNum(27)  ] = 1600
+            self._distances[self._convNum(23)  ] = 1800
+            self._distances[self._convNum(19)  ] = 2000
+            self._distances[self._convNum(15)  ] = 2200
+            self._distances[self._convNum(10)  ] = 2400
+            self._distances[self._convNum(8)   ] = 2600
+            self._distances[self._convNum(6.5) ] = 2800
+            self._distances[self._convNum(6)   ] = 3000
+            self._distances[self._convNum(4.8) ] = 3200
+            self._distances[self._convNum(3)   ] = 3400
 
 
         try:
@@ -379,7 +387,7 @@ class PointsPainter(QThread):
 
             for antPos in self._antPoints:
                 nAnt = self._antPoints[antPos] 
-                self._calc_dist_dict(nAnt)
+                self._calcDistFromCalibrationData(nAnt)
                 sumRSSI = 0
                 for i in range(3):
                     sumRSSI += self._ants_keys_data.one_key_data[nAnt][i]**2
@@ -552,6 +560,21 @@ class PointsPainter(QThread):
             self._redPoints[p] = 0 
         # except Exception as exc:
         #     self._logger.warning(f"Find key point Error: {exc}")
+
+    def _make_zones_rects(self):
+        pos = self._lastPos
+        if self._startedZoneRect:
+            for point in self._purpleZoneRectsBegin:
+                self._purpleZoneRects[tuple([point[0], point[1]])] = pos
+        
+            self._purpleZoneRectsBegin.clear()
+
+            self._startedZoneRect = False
+        else:
+            self._purpleZoneRectsBegin[pos] = 0
+            self._startedZoneRect = True
+            
+        self._paintCalibrationEvent()
 
     def _populateSetAnts(self):
         self._setAntMenu.clear()
@@ -757,9 +780,9 @@ class PointsPainter(QThread):
         return None
 
     def _paintMainPic(self, label):
-        canvas_width = 700
-        canvas_height = 1000
-        picture_height = 800
+        canvas_width = 1000
+        canvas_height = 1500
+        picture_height = 1200
 
         canvas = QPixmap(canvas_width, canvas_height)
         canvas.fill(Qt.white)
@@ -770,7 +793,7 @@ class PointsPainter(QThread):
 
         painter = QPainter(label.pixmap())
 
-        pixmap = QPixmap('pictures/GAZ_Top_View.png')
+        pixmap = QPixmap('pictures/vesta_top_view.png')
         pixmap = pixmap.scaledToHeight(picture_height)
         painter.drawPixmap(canvas_width//2 - pixmap.width()//2,
                            canvas_height//2 - pixmap.height()//2, 
@@ -856,6 +879,28 @@ class PointsPainter(QThread):
             painter.setPen(pen)
             painter.setBrush(color)
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+
+
+        pen = QPen()
+        radius = 10
+        pen.setWidth(1)
+        pen.setColor(QColor('purple'))
+        painter.setPen(pen)
+        painter.setBrush(QColor('purple'))
+        for point in self._purpleZoneRectsBegin:
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+
+        pen = QPen()
+        pen.setWidth(5)
+        pen.setColor(QColor('purple'))
+        painter.setPen(pen)
+        painter.setBrush(QColor('transparent'))
+        for point in self._purpleZoneRects:
+            rect = QRect(QPoint(point[0], 
+                                point[1]), 
+                         QPoint(self._purpleZoneRects[point][0],
+                                self._purpleZoneRects[point][1]))
+            painter.drawRect(rect)
 
         self._calibrationLabel.update()
 

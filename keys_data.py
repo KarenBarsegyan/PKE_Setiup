@@ -156,8 +156,8 @@ class KeysData():
                 res_data[nAnt] = np.zeros((((3))))
 
         # print("Data Amount: ", self._one_key_average_data_amount)
-        print("Summs: "      , self._one_key_average_data)
-        print("Average: "    , res_data)
+        # print("Summs: "      , self._one_key_average_data)
+        # print("Average: "    , res_data)
         return res_data
 
     def calcAverageRMS(self, averageData):
