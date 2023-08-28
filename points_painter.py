@@ -98,13 +98,12 @@ class PointsPainter(QThread):
                 numpyArray = np.asarray(json.loads(pointsData['pointsGreen'][point][0]))
                 pollings = np.asarray(json.loads(pointsData['pointsGreen'][point][1]))
                 dataRMS = np.asarray(json.loads(pointsData['pointsGreen'][point][2]))
-                dataMED = np.asarray(json.loads(pointsData['pointsGreen'][point][3]))
-                auths_ok = pointsData['pointsGreen'][point][4]
-                polls_done = pointsData['pointsGreen'][point][5]
-                key_num = pointsData['pointsGreen'][point][6]
+                auths_ok = pointsData['pointsGreen'][point][3]
+                polls_done = pointsData['pointsGreen'][point][4]
+                key_num = pointsData['pointsGreen'][point][5]
 
                 data = KeysDataAverage()
-                data.setData(numpyArray, auths_ok, pollings, polls_done, key_num, dataRMS, dataMED)
+                data.setData(numpyArray, auths_ok, pollings, polls_done, key_num, dataRMS)
                 self._greenPoints[tuple(json.loads(point))] = data
 
             self._antPoints.clear()
@@ -143,7 +142,6 @@ class PointsPainter(QThread):
             d[json.dumps(point)] = [json.dumps(self._greenPoints[point].data, cls=NumpyArrayEncoder),
                                     json.dumps(self._greenPoints[point].good_pollings_amount, cls=NumpyArrayEncoder),
                                     json.dumps(self._greenPoints[point].dataRMS, cls=NumpyArrayEncoder),
-                                    json.dumps(self._greenPoints[point].dataMED, cls=NumpyArrayEncoder),
                                     self._greenPoints[point].auths_ok,
                                     self._greenPoints[point].polls_done,
                                     self._greenPoints[point].key_num]
@@ -1030,17 +1028,15 @@ class PointsPainter(QThread):
         self._authLabel.setText(f"Auths {keys_data_average_data.auths_ok}/{keys_data_average_data.polls_done}")
         data = keys_data_average_data.data
         dataRMS = keys_data_average_data.dataRMS
-        dataMED = keys_data_average_data.dataMED
         polling = keys_data_average_data.good_pollings_amount
         for nAnt in range(self._AntAmount):
             if polling[nAnt] != 0:
                 self._antFrames[nAnt+1].show()
-                self._RSSI_Widgets[nAnt].setText(f" X : {' '*(3-len(str(data[nAnt][0])))}{data[nAnt][0]}\n"
-                                                 f" Y : {' '*(3-len(str(data[nAnt][1])))}{data[nAnt][1]}\n"
-                                                 f" Z : {' '*(3-len(str(data[nAnt][2])))}{data[nAnt][2]}\n"
-                                                 f"RMS: {' '*(3-len(str(dataRMS[nAnt])))}{dataRMS[nAnt]}\n"
-                                                 f"MED: {' '*(3-len(str(dataMED[nAnt])))}{dataMED[nAnt]}\n"
-                                                 f"Pol: {' '*(3-len(str(polling[nAnt])))}{polling[nAnt]}")
+                self._RSSI_Widgets[nAnt].setText(f" X : {' '*(6-len(str(int(data[nAnt][0]))))}{int(data[nAnt][0])}\n"
+                                                 f" Y : {' '*(6-len(str(int(data[nAnt][1]))))}{int(data[nAnt][1])}\n"
+                                                 f" Z : {' '*(6-len(str(int(data[nAnt][2]))))}{int(data[nAnt][2])}\n"
+                                                 f"RMS: {' '*(6-len(str(int(dataRMS[nAnt]))))}{int(dataRMS[nAnt])}\n"
+                                                 f"Pol: {' '*(6-len(str(    polling[nAnt] )))}{    polling[nAnt] }")
             else:
                 self._antFrames[nAnt+1].hide()
 

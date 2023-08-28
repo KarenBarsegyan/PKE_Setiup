@@ -29,17 +29,15 @@ class KeysDataAverage():
             self._polls_done = data.polls_done
             self._key_num = data.key_num
             self._dataRMS = data.calcAverageRMS(self._data)
-            self._dataMED = data.calcAverageMED(self._data)
 
     def setData(self, npdata, auths_ok, good_pollings_amoun, polls_done, 
-                key_num, dataRMS, dataMED):
+                key_num, dataRMS):
         self._data = npdata
         self._auths_ok = auths_ok
         self._good_pollings_amount = good_pollings_amoun
         self._polls_done = polls_done
         self._key_num = key_num
         self._dataRMS = dataRMS
-        self._dataMED = dataMED
 
     @property
     def data(self):
@@ -48,10 +46,6 @@ class KeysDataAverage():
     @property
     def dataRMS(self):
         return self._dataRMS
-
-    @property
-    def dataMED(self):
-        return self._dataMED
 
     @property
     def auths_ok(self):
@@ -156,14 +150,14 @@ class KeysData():
         res_data = np.zeros((((self._ant_amount, 3))))
         for nAnt in range(self._ant_amount):
             if(self._one_key_average_data_amount[nAnt] > 0):
-                res_data[nAnt] = np.floor_divide(self._one_key_average_data[nAnt], 
+                res_data[nAnt] = np.divide(self._one_key_average_data[nAnt], 
                                                  self._one_key_average_data_amount[nAnt])
             else:
                 res_data[nAnt] = np.zeros((((3))))
 
         # print("Data Amount: ", self._one_key_average_data_amount)
-        # print("Summs: "      , self._one_key_average_data)
-        # print("Average: "    , res_data)
+        print("Summs: "      , self._one_key_average_data)
+        print("Average: "    , res_data)
         return res_data
 
     def calcAverageRMS(self, averageData):
@@ -172,17 +166,6 @@ class KeysData():
             res_data[nAnt] = ((averageData[nAnt][0]**2) + 
                               (averageData[nAnt][1]**2) + 
                               (averageData[nAnt][2]**2))**0.5
-
-        # print("Average: ", averageData)
-        # print("Data: ", res_data)
-        return res_data
-
-    def calcAverageMED(self, averageData):
-        res_data = np.zeros(((self._ant_amount)))
-        for nAnt in range(self._ant_amount):
-            res_data[nAnt] = (averageData[nAnt][0] + 
-                              averageData[nAnt][1] +
-                              averageData[nAnt][2])/3
 
         # print("Average: ", averageData)
         # print("Data: ", res_data)
