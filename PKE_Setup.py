@@ -79,7 +79,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, *args, **kwargs):
         # Say hardware to stop polling
-        self._bus_worker.auth_mode = 2
+        self._bus_worker.auth_mode = 0
         self._bus_worker.sendData()
         self._stopPolling()
 
@@ -1410,16 +1410,15 @@ class MainWindow(QMainWindow):
                 else: 
                     rms = 0
 
-                if x != 0 or y != 0 or z != 0:
-                    self._RSSI_X_Bar[nAnt][nKey].setValue(int(x))
-                    self._RSSI_Y_Bar[nAnt][nKey].setValue(int(y))
-                    self._RSSI_Z_Bar[nAnt][nKey].setValue(int(z))
-                    self._RSSI_RMS_Bar[nAnt][nKey].setValue(int(rms))
+                self._RSSI_X_Bar[nAnt][nKey].setValue(int(x))
+                self._RSSI_Y_Bar[nAnt][nKey].setValue(int(y))
+                self._RSSI_Z_Bar[nAnt][nKey].setValue(int(z))
+                self._RSSI_RMS_Bar[nAnt][nKey].setValue(int(rms))
 
-                    self._RSSI_X_Bar[nAnt][nKey].update()
-                    self._RSSI_Y_Bar[nAnt][nKey].update()
-                    self._RSSI_Z_Bar[nAnt][nKey].update()
-                    self._RSSI_RMS_Bar[nAnt][nKey].update()
+                self._RSSI_X_Bar[nAnt][nKey].update()
+                self._RSSI_Y_Bar[nAnt][nKey].update()
+                self._RSSI_Z_Bar[nAnt][nKey].update()
+                self._RSSI_RMS_Bar[nAnt][nKey].update()
 
     def _printLogData(self): 
         time_hms = time.strftime("%H:%M:%S", time.localtime())
