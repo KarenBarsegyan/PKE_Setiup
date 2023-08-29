@@ -38,17 +38,27 @@ class PointsPainter(QThread):
     def __init__(self, askForPollingFunc, parent=None):
         QThread.__init__(self, parent)
 
+        ###### Settings ######
+
+        # Mesh size relatively to screen resolution 
         self._mesh_step = 25
+
+        # Calc some real dist and amount mesh steps inside this dist
+        amount_of_mesh_steps = 24
+        distance_of_this_steps = 1500
+        ######################
+
+        # Mesh step to real size
+        self._dist_to_mesh_coeff = distance_of_this_steps/(self._mesh_step * amount_of_mesh_steps)
         self._greenPoints = dict()
         self._highlitedPoints = dict()
         self._yellowPoints = dict()
         self._redPoints = dict()
         self._bluePoints = dict()
-        self._purpleZoneRects = dict()
-        self._purpleZoneRectsBegin = dict()
-        self._startedZoneRect = False
         self._darkRedPoints = dict()
         self._keyCircles = dict()
+        self._zoneCircles = dict()
+        self._vehicleEdgeRect = dict()
         self._antPoints = dict()
         self._lastPos = tuple()
         self._lastYellowPos = tuple()
@@ -63,7 +73,6 @@ class PointsPainter(QThread):
         self._store_data_path = ''
         self._keyChosen = 0
         self._rssiFloatingWindowIsHidden = True
-        self._distCoeff = dict()
 
         self._yellow_radius = 0
         self._yellowAnimation = QPropertyAnimation(self, b"yellow_radius", self)
@@ -197,10 +206,6 @@ class PointsPainter(QThread):
         self._setAntAction.setMenu(self._setAntMenu)
         self._setAntMenu.aboutToShow.connect(self._populateSetAnts)
 
-        self._setZoneAction = QAction(self)
-        self._setZoneAction.setText("Set Zone")
-        self._setZoneAction.triggered.connect(self._make_zones_rects)
-
         separator = QAction(self)
         separator.setSeparator(True)
 
@@ -215,7 +220,7 @@ class PointsPainter(QThread):
         self._calibrationLabel.addAction(self._writeRSSIAction)
         self._calibrationLabel.addAction(self._deletePointAction)
         self._calibrationLabel.addAction(self._setAntAction)
-        self._calibrationLabel.addAction(self._setZoneAction)
+        # self._calibrationLabel.addAction(self._setZoneAction)
         self._calibrationLabel.addAction(separator)
         self._calibrationLabel.addAction(self._ant_num_action)
 
@@ -263,32 +268,15 @@ class PointsPainter(QThread):
 
     def Calibrate(self):
         # try:
+            pos = tuple()
+
             for antPos in self._antPoints:
-                coeff = 0
-                amountOfCalcs = 0
-                nAnt = self._antPoints[antPos]   
+                nAnt = self._antPoints[antPos] 
+                if nAnt == 3:
+                    pos = antPos
+                    self._zoneCircles[pos] = [200, 300, 400, 500, 600, 700, 800]
+                    break
                 
-                # Delete old Coeff if exists
-                if nAnt in self._distCoeff:
-                    del self._distCoeff[nAnt]
-
-                for gPos in self._greenPoints:
-                    sumRSSI = 0
-                    for i in range(3):
-                        sumRSSI += (self._greenPoints[gPos].data[nAnt][i])**2
-
-                    sumRSSI = sumRSSI ** 0.5
-
-                    if sumRSSI > 0:
-                        dist = ((gPos[0] - antPos[0])**2 + (gPos[1] - antPos[1])**2)**0.5
-                        coeff += (sumRSSI**(0.4)) * dist
-                        amountOfCalcs += 1
-
-                    # print(f"ANT: {nAnt} \t RSSI: {sumRSSI} \t Dist: {int(dist)} \t Coeff: {int(sumRSSI*dist*dist)}")
-                    # print(f"Ant: {nAnt}\nnKey: {self._greenPoints[gPos][self._AntAmount][0]+1}\nDist: {dist}\nRSSI: {sumRSSI}")
-                if(amountOfCalcs != 0):
-                    self._distCoeff[nAnt] = coeff/amountOfCalcs
-
             # print(f"Mean val: {self._distCoeff}")
             # print("--------------------------------\n")
         # except Exception as exc:
@@ -298,16 +286,13 @@ class PointsPainter(QThread):
         return (num)**(-0.5)
 
     def _calcDistFromCalibrationData(self, nAnt):
-        self._dist_to_mesh_coeff = 0
         self._distances = dict()
         self._min_rssi = 0
         self._min_rssi = 0
 
         # print(nAnt)
-        if nAnt == 0:
+        if nAnt == 0 or nAnt == 1:
             # Door ant
-            self._dist_to_mesh_coeff = 9.5
-
             self._distances[self._convNum(6520)] = 200
             self._distances[self._convNum(1135)] = 400
             self._distances[self._convNum(435) ] = 600
@@ -331,8 +316,6 @@ class PointsPainter(QThread):
 
         if nAnt == 2:
             # Bamper ant
-            self._dist_to_mesh_coeff = 10
-
             self._distances[self._convNum(3060)] = 200
             self._distances[self._convNum(491) ] = 400
             self._distances[self._convNum(188) ] = 600
@@ -354,8 +337,6 @@ class PointsPainter(QThread):
 
         if nAnt == 3:
             # Console ant
-            self._dist_to_mesh_coeff = 9
-            
             self._distances[self._convNum(3160)] = 200
             self._distances[self._convNum(445) ] = 400
             self._distances[self._convNum(172) ] = 600
@@ -417,10 +398,6 @@ class PointsPainter(QThread):
                         b = self._distances[min_closest] - k*min_closest
 
                         res = k*calcDist + b
-                    
-                    # print("RSSI   = ", self.testRssi)
-                    # print("Dist   = ", res)
-                    # print()
 
                     self._keyCircles[antPos] = res / self._dist_to_mesh_coeff
 
@@ -560,21 +537,6 @@ class PointsPainter(QThread):
             self._redPoints[p] = 0 
         # except Exception as exc:
         #     self._logger.warning(f"Find key point Error: {exc}")
-
-    def _make_zones_rects(self):
-        pos = self._lastPos
-        if self._startedZoneRect:
-            for point in self._purpleZoneRectsBegin:
-                self._purpleZoneRects[tuple([point[0], point[1]])] = pos
-        
-            self._purpleZoneRectsBegin.clear()
-
-            self._startedZoneRect = False
-        else:
-            self._purpleZoneRectsBegin[pos] = 0
-            self._startedZoneRect = True
-            
-        self._paintCalibrationEvent()
 
     def _populateSetAnts(self):
         self._setAntMenu.clear()
@@ -783,6 +745,7 @@ class PointsPainter(QThread):
         canvas_width = 1000
         canvas_height = 1500
         picture_height = 1200
+        picture_shift_hor = 18
 
         canvas = QPixmap(canvas_width, canvas_height)
         canvas.fill(Qt.white)
@@ -795,9 +758,11 @@ class PointsPainter(QThread):
 
         pixmap = QPixmap('pictures/vesta_top_view.png')
         pixmap = pixmap.scaledToHeight(picture_height)
-        painter.drawPixmap(canvas_width//2 - pixmap.width()//2,
+        painter.drawPixmap(canvas_width//2 - pixmap.width()//2 + picture_shift_hor,
                            canvas_height//2 - pixmap.height()//2, 
                            pixmap)
+        
+        self._vehicleEdgeRect[tuple([225, 200])] = tuple([600, 1000])
         
         self._picWidth = canvas.width()
         self._picHeight = canvas.height()
@@ -880,26 +845,24 @@ class PointsPainter(QThread):
             painter.setBrush(color)
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-
         pen = QPen()
-        radius = 10
-        pen.setWidth(1)
-        pen.setColor(QColor('purple'))
-        painter.setPen(pen)
-        painter.setBrush(QColor('purple'))
-        for point in self._purpleZoneRectsBegin:
-            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
-
-        pen = QPen()
-        pen.setWidth(5)
+        pen.setWidth(3)
         pen.setColor(QColor('purple'))
         painter.setPen(pen)
         painter.setBrush(QColor('transparent'))
-        for point in self._purpleZoneRects:
-            rect = QRect(QPoint(point[0], 
-                                point[1]), 
-                         QPoint(self._purpleZoneRects[point][0],
-                                self._purpleZoneRects[point][1]))
+        for point in self._zoneCircles:
+            for radius in self._zoneCircles[point]:
+                painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+    
+        pen = QPen()
+        pen.setWidth(3)
+        pen.setColor(QColor('brown'))
+        painter.setPen(pen)
+        painter.setBrush(QColor('transparent'))
+        for point in self._vehicleEdgeRect:
+            rect = QRect(QPoint(point[0], point[1]), 
+                         QSize(self._vehicleEdgeRect[point][0], 
+                               self._vehicleEdgeRect[point][1]))
             painter.drawRect(rect)
 
         self._calibrationLabel.update()

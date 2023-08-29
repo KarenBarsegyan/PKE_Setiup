@@ -39,6 +39,7 @@ class MainWindow(QMainWindow):
         self._logs_path = "app_logs"
         self._pollings_done = 0
         self._auth_status = False
+        self._auth_status_previous = False
         self._is_polling_in_progress = False
         self._pollings_needed = 1
         self._repeat_polling = False
@@ -1158,7 +1159,13 @@ class MainWindow(QMainWindow):
                 self._auth_status = False
                 self._widget_auth_state_label.setText(f'Auth: Fail')
 
-            if (not self._auth_state_animation_in_progress):
+            if (self._auth_status_previous != self._auth_status):
+                self._auth_status_previous = self._auth_status
+                self._auth_state_animation.stop()
+                self._auth_state_animation_in_progress = True
+                self._auth_state_animation.start()
+
+            elif not self._auth_state_animation_in_progress:
                 self._auth_state_animation_in_progress = True
                 self._auth_state_animation.start()
 

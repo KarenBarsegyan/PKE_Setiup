@@ -1,1 +1,1 @@
-{"key_ants": {"ants": [0], "keys": [0], "auth": 0, "pollings_amount": 10, "current": 32, "key_for_calibration": 0}, "points": {"pointsGreen": {}, "pointsAnt": {"[525, 400]": 0}}}
+{"key_ants": {"ants": [0], "keys": [0, 1, 2, 3, 4], "auth": 1, "pollings_amount": 10, "current": 32, "key_for_calibration": 0}, "points": {"pointsGreen": {}, "pointsAnt": {"[525, 400]": 3, "[525, 1350]": 2, "[225, 850]": 0, "[825, 850]": 1}}}
