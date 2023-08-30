@@ -793,6 +793,7 @@ class PointsPainter(QThread):
 
         self._paintMainPic(self._calibrationLabel)
 
+        # Calibration dots of different collors
         painter = QPainter(self._calibrationLabel.pixmap())
         pen = QPen()
         radius = 10
@@ -800,29 +801,23 @@ class PointsPainter(QThread):
         for point in self._greenPoints:
             k = (self._greenPoints[point].auths_ok /
                  self._greenPoints[point].polls_done)
-
             color = QColor(max(0, int(150-150*k*2)+1), 
                            min(150, int(75*k*2))+10, 1)
-            
             pen.setColor(color)
             painter.setPen(pen)
             painter.setBrush(color)
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        pen = QPen()
+        # Yellow calibration circle with float radius
         radius = self.yellow_radius
-        pen.setWidth(1)
-        pen.setColor(QColor('black'))
-        painter.setPen(pen)
+        painter.setPen(QPen(QColor('black'), 1))
         painter.setBrush(QColor('yellow'))
         for point in self._yellowPoints:
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        pen = QPen()
+        # Ants rectangels
         size = 20
-        pen.setWidth(1)
-        pen.setColor(QColor('orange'))
-        painter.setPen(pen)
+        painter.setPen(QPen(QColor('orange'), 1))
         painter.setBrush(QColor('orange'))
         for point in self._antPoints:
             rect = QRect(QPoint(point[0]-size//2, 
@@ -830,6 +825,7 @@ class PointsPainter(QThread):
                          QSize(size, size))
             painter.drawRect(rect)
 
+        # Highligted calibration dots of different collors
         pen = QPen()
         radius = 13
         pen.setWidth(1)
@@ -839,25 +835,20 @@ class PointsPainter(QThread):
 
             color = QColor(max(0, int(150-150*k*2)+1), 
                            min(150, int(75*k*2))+60, 1)
-            
             pen.setColor(color)
             painter.setPen(pen)
             painter.setBrush(color)
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        pen = QPen()
-        pen.setWidth(3)
-        pen.setColor(QColor('purple'))
-        painter.setPen(pen)
+        # Zones purple dash lines
+        painter.setPen(QPen(QColor('purple'), 3, Qt.DashLine))
         painter.setBrush(QColor('transparent'))
         for point in self._zoneCircles:
             for radius in self._zoneCircles[point]:
                 painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
     
-        pen = QPen()
-        pen.setWidth(3)
-        pen.setColor(QColor('brown'))
-        painter.setPen(pen)
+        # Edge rect
+        painter.setPen(QPen(QColor('brown'), 3))
         painter.setBrush(QColor('transparent'))
         for point in self._vehicleEdgeRect:
             rect = QRect(QPoint(point[0], point[1]), 
