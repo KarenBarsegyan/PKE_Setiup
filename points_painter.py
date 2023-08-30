@@ -35,6 +35,7 @@ class PointsPainter(QThread):
         Yellow = 2 
         Red = 3
         Ant = 4
+        Gray = 5
 
     def __init__(self, askForPollingFunc, parent=None):
         QThread.__init__(self, parent)
@@ -58,14 +59,16 @@ class PointsPainter(QThread):
         # Vehicle size
         self._vehicle_top_left_angle = tuple([225, 200])
         self._vehicle_size = tuple([600, 1000])
-        self._zones = [200, 300, 400, 500, 600, 700, 800]
+        self._zones_step_size_setup = 3
         self._first_ant = 4
 
         #################################
 
         # Mesh step to real size
+        self._zones_step_size = self._mesh_step * 2 * self._zones_step_size_setup
         self._dist_to_mesh_coeff = distance_of_this_steps/(self._mesh_step * amount_of_mesh_steps)
         self._greenPoints = dict()
+        self._grayPoints = dict()
         self._highlitedPoints = dict()
         self._yellowPoints = dict()
         self._redPoints = dict()
@@ -74,6 +77,7 @@ class PointsPainter(QThread):
         self._darkRedPoints = dict()
         self._keyCircles = dict()
         self._zoneCircles = dict()
+        self._zoneRssi = dict()
         self._activeZoneCircles = dict()
         self._vehicleEdgeRect = dict()
         self._antPoints = dict()
@@ -141,7 +145,7 @@ class PointsPainter(QThread):
                 antNum = pointsData['pointsAnt'][point]
                 self._antPoints[tuple(json.loads(point))] = antNum
 
-            self.Calibrate()
+            self._calibrate()
             self._paintCalibrationEvent()
             self._paintMeasureEvent()
 
@@ -204,6 +208,7 @@ class PointsPainter(QThread):
                 self._ants_keys_data.clearAverage()
                 
         self._calcDistance()
+        self._findZone()
         self._updateToolbarData()
     
     def SetUpCalibrationDesk(self):
@@ -244,7 +249,6 @@ class PointsPainter(QThread):
 
         localLayout.addWidget(self._calibrationLabel)
 
-        self._paintMainPic(self._calibrationLabel)
         self._paintCalibrationEvent()
 
         self._rssiFloatingWindow = self._SetAntsData()
@@ -271,7 +275,6 @@ class PointsPainter(QThread):
 
         localLayout.addWidget(self._measureLabel)
 
-        self._paintMainPic(self._measureLabel)
         self._paintMeasureEvent()
 
         v_widget = QWidget()
@@ -284,16 +287,39 @@ class PointsPainter(QThread):
 
         return scrollPicture    
 
-    def Calibrate(self):
+    def _calibrate(self): 
         # try:
-        # for point in self._greenPoints:
-        pass
-            
-
-            # print(f"Mean val: {self._distCoeff}")
-            # print("--------------------------------\n")
+            pass
         # except Exception as exc:
-        #     self._logger.warning(f"No data to calibrate: {exc}")
+        #     self._logger.warning(f"No data to _calibrate: {exc}")
+
+    def _paintZones(self):
+        self._vehicleEdgeRect[self._vehicle_top_left_angle] = self._vehicle_size
+        self._grayPoints.clear()
+
+        aSize = self._vehicle_size[0]/2
+
+        zonePos = tuple()
+        for antPos in self._antPoints:
+            nAnt = self._antPoints[antPos] 
+            if nAnt == self._first_ant-1:
+                zonePos = antPos
+
+        if zonePos != tuple():
+            self._zoneCircles[zonePos] = []
+
+            topPart = abs(self._vehicle_top_left_angle[1] - zonePos[1])
+
+            for zoneLeftDist in range(0, self._vehicle_size[1] - topPart, self._zones_step_size):
+                radius = (zoneLeftDist**2 + aSize**2)**0.5
+                if(radius > aSize):
+                    self._zoneCircles[zonePos].append(radius)
+                    x = self._vehicle_top_left_angle[0]
+                    y = zonePos[1] + zoneLeftDist + self._zones_step_size/2
+                    pos = tuple([int(x), int(y)])
+                    if (y < self._vehicle_top_left_angle[1] + self._vehicle_size[1]):
+                        if pos not in self._greenPoints and pos not in self._yellowPoints:
+                            self._grayPoints[pos] = 0
 
     def _convNum(self, num):
         return (num)**(-0.5)
@@ -379,8 +405,6 @@ class PointsPainter(QThread):
         # try:
             self._keyCircles.clear()
 
-            dist_from_first_ant = 0
-            pos_first_ant = tuple()
             for antPos in self._antPoints:
                 nAnt = self._antPoints[antPos] 
                 self._calcDistFromCalibrationData(nAnt)
@@ -416,10 +440,6 @@ class PointsPainter(QThread):
 
                     self._keyCircles[antPos] = res / self._dist_to_mesh_coeff
 
-                    if nAnt == self._first_ant - 1:
-                        dist_from_first_ant = self._keyCircles[antPos]
-                        pos_first_ant = antPos
-
             points = set()
             self._bluePoints.clear()
             for circ1 in self._keyCircles:
@@ -435,60 +455,69 @@ class PointsPainter(QThread):
                 pointsList.append(p)
             self._findKeyPoint(pointsList)
 
+    def _findZone(self):
+        # try:
             self._key_inside = 0
-            if pos_first_ant != tuple() and self._greenPoints:
-
-                minDist = float('inf')
-                greenPointMin = tuple()
-                for point in self._greenPoints:
-                    dist = ((point[0] - pos_first_ant[0])**2 + (point[1] - pos_first_ant[1])**2)**0.5
-
-                    if abs(minDist - dist_from_first_ant) > abs(dist - dist_from_first_ant):
-                        minDist = dist
-                        greenPointMin = point
-                        self._purplePoints.clear()
-                        self._purplePoints[point] = 0
-
-                distBetween = minDist - dist_from_first_ant
-                print(distBetween)
-
-                minRadius = float('inf')
-                for point in self._zoneCircles:
-                    for radius in self._zoneCircles[point]:
-                        if abs(minRadius - minDist) > abs(radius - minDist):
-                            minRadius = radius
-                            self._activeZoneCircles.clear()
-                            self._activeZoneCircles[point] = [radius]
-
-                self._key_inside = 1
-                dataToCompare = self._greenPoints[greenPointMin].dataRMS
- 
-                badAnts = set()
-                minAntRSSI = float('inf')
-                for antPos in self._antPoints:
-                    nAnt = self._antPoints[antPos] 
-
-                    if nAnt != self._first_ant - 1 and dataToCompare[nAnt] != 0:
-                        minAntRSSI = min(minAntRSSI, dataToCompare[nAnt])
-                        print("Ant: ", nAnt+1, "green RSSI: ", dataToCompare[nAnt])
+            
+            upperMin = float('inf')
+            bottomMin = float('inf')
+            for greenPoint in self._greenPoints:
+                greenRSSI = self._greenPoints[greenPoint].dataRMS
                 
-                print("RSSI to Comp: ", minAntRSSI)
+                
 
-                for antPos in self._antPoints:
-                    nAnt = self._antPoints[antPos] 
-                    if nAnt != self._first_ant - 1 and dataToCompare[nAnt] != 0:
-                        sumRSSI = 0
-                        for i in range(3):
-                            sumRSSI += self._ants_keys_data.one_key_data[nAnt][i]**2
-                        sumRSSI = sumRSSI ** (0.5)
-                        print("Ant: ", nAnt+1, "Real RSSI: ", sumRSSI)
-                        if (minAntRSSI > sumRSSI):
-                            self._key_inside = 2
-                            badAnts.add(nAnt+1)
 
-                print(badAnts)
+            #     minDist = float('inf')
+            #     greenPointMin = tuple()
+            #     for point in self._greenPoints:
+            #         dist = ((point[0] - pos_first_ant[0])**2 + (point[1] - pos_first_ant[1])**2)**0.5
 
-            self._paintMeasureEvent()
+            #         if abs(minDist - dist_from_first_ant) > abs(dist - dist_from_first_ant):
+            #             minDist = dist
+            #             greenPointMin = point
+            #             self._purplePoints.clear()
+            #             self._purplePoints[point] = 0
+
+            #     distBetween = minDist - dist_from_first_ant
+            #     print(distBetween)
+
+            #     minRadius = float('inf')
+            #     for point in self._zoneCircles:
+            #         for radius in self._zoneCircles[point]:
+            #             if abs(minRadius - minDist) > abs(radius - minDist):
+            #                 minRadius = radius
+            #                 self._activeZoneCircles.clear()
+            #                 self._activeZoneCircles[point] = [radius]
+
+            #     self._key_inside = 1
+            #     dataToCompare = self._greenPoints[greenPointMin].dataRMS
+ 
+            #     badAnts = set()
+            #     minAntRSSI = float('inf')
+            #     for antPos in self._antPoints:
+            #         nAnt = self._antPoints[antPos] 
+
+            #         if nAnt != self._first_ant - 1 and dataToCompare[nAnt] != 0:
+            #             minAntRSSI = min(minAntRSSI, dataToCompare[nAnt])
+            #             print("Ant: ", nAnt+1, "green RSSI: ", dataToCompare[nAnt])
+                
+            #     print("RSSI to Comp: ", minAntRSSI)
+
+            #     for antPos in self._antPoints:
+            #         nAnt = self._antPoints[antPos] 
+            #         if nAnt != self._first_ant - 1 and dataToCompare[nAnt] != 0:
+            #             sumRSSI = 0
+            #             for i in range(3):
+            #                 sumRSSI += self._ants_keys_data.one_key_data[nAnt][i]**2
+            #             sumRSSI = sumRSSI ** (0.5)
+            #             print("Ant: ", nAnt+1, "Real RSSI: ", sumRSSI)
+            #             if (minAntRSSI > sumRSSI):
+            #                 self._key_inside = 2
+            #                 badAnts.add(nAnt+1)
+
+            #     print(badAnts)
+
+            # self._paintMeasureEvent()
         # except Exception as exc:
         #     self._logger.warning(f"Calc Distance Error: {exc}")
 
@@ -631,7 +660,7 @@ class PointsPainter(QThread):
                                (round(event.pos().y() / self._mesh_step) * self._mesh_step)])
 
         if event.button() == Qt.LeftButton:
-            if self._whichPointPlaced() == None and self._rssiFloatingWindowIsHidden:
+            if self._whichPointPlaced() == self.PointType.Gray and self._rssiFloatingWindowIsHidden:
                 if not self._yellowPointInProgress:
                     self._setPoint(type = self.PointType.Yellow)
 
@@ -654,7 +683,7 @@ class PointsPainter(QThread):
   
     def _updateToolbarData(self):
         if self._whichPointPlaced() == None:
-            self._writeRSSIAction.setVisible(True)
+            self._writeRSSIAction.setVisible(False)
             if (self._yellowPointInProgress):
                 self._writeRSSIAction.setText("Polling in progress...")
                 self._writeRSSIAction.setDisabled(True)
@@ -697,6 +726,23 @@ class PointsPainter(QThread):
             self._deletePointAction.setVisible(True)
             self._setAntAction.setVisible(False)
 
+        elif self._whichPointPlaced() == self.PointType.Gray:
+            self._writeRSSIAction.setVisible(True)
+            if (self._yellowPointInProgress):
+                self._writeRSSIAction.setText("Polling in progress...")
+                self._writeRSSIAction.setDisabled(True)
+            else:
+                self._writeRSSIAction.setText("Write RSSI")
+                self._writeRSSIAction.setEnabled(True)
+
+            self._deletePointAction.setVisible(False)
+            if len(self._antPoints) < self._AntAmount:
+                self._setAntAction.setVisible(True)
+            else:
+                self._setAntAction.setVisible(False)
+
+            self._ant_num_action.setVisible(False)
+
             return
         else:
             return
@@ -723,7 +769,7 @@ class PointsPainter(QThread):
             del self._antPoints[pos]
             type = self.PointType.Ant
 
-        self.Calibrate()
+        self._calibrate()
         self._paintCalibrationEvent()
         self._paintMeasureEvent()
 
@@ -743,7 +789,7 @@ class PointsPainter(QThread):
 
             if type == self.PointType.Green:
                 self._greenPoints[pos] = KeysDataAverage(self._ants_keys_data)
-                self.Calibrate()    
+                self._calibrate()    
 
             elif type == self.PointType.Yellow: 
                 self._yellowPointInProgress = True
@@ -760,7 +806,7 @@ class PointsPainter(QThread):
 
             elif type == self.PointType.Ant:  
                 self._antPoints[pos] = antNum  
-                self.Calibrate()              
+                self._calibrate()              
 
             self._paintCalibrationEvent()
             self._paintMeasureEvent()
@@ -791,6 +837,9 @@ class PointsPainter(QThread):
     def _whichPointPlaced(self) -> PointType:
         if self._lastPos in self._greenPoints.keys():
             return self.PointType.Green
+        
+        if self._lastPos in self._grayPoints.keys():
+            return self.PointType.Gray
             
         if self._lastPos in self._yellowPoints.keys():
             return self.PointType.Yellow
@@ -818,15 +867,6 @@ class PointsPainter(QThread):
         painter.drawPixmap(self._canvas_width//2 - pixmap.width()//2 + self._picture_shift_hor,
                            self._canvas_height//2 - pixmap.height()//2, 
                            pixmap)
-        
-        self._vehicleEdgeRect[self._vehicle_top_left_angle] = self._vehicle_size
-        pos = tuple()
-        for antPos in self._antPoints:
-            nAnt = self._antPoints[antPos] 
-            if nAnt == self._first_ant-1:
-                pos = antPos
-                self._zoneCircles[pos] = self._zones
-                break
         
         self._picWidth = canvas.width()
         self._picHeight = canvas.height()
@@ -856,6 +896,8 @@ class PointsPainter(QThread):
         self._calibrationLabel.clear()
 
         self._paintMainPic(self._calibrationLabel)
+        self._paintZones()
+
         painter = QPainter(self._calibrationLabel.pixmap())
 
         # Zones full circles dash lines
@@ -863,6 +905,7 @@ class PointsPainter(QThread):
         painter.setBrush(QColor('transparent'))
         for point in self._zoneCircles:
             for radius in self._zoneCircles[point]:
+                radius = int(radius)
                 painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
         
         # Zones purple dash lines
@@ -872,6 +915,7 @@ class PointsPainter(QThread):
             for radius in self._zoneCircles[point]:
                 if (self._vehicle_size[0]/2 <= radius):
                     angle = int(180/3.14*math.acos(self._vehicle_size[0]/(radius*2)))
+                    radius = int(radius)
                     painter.drawArc(point[0]-radius, point[1]-radius, 
                                     radius*2, radius*2, 
                                     -angle*16, -(180 - 2*angle) * 16)
@@ -886,6 +930,13 @@ class PointsPainter(QThread):
                          QSize(self._vehicleEdgeRect[point][0], 
                                self._vehicleEdgeRect[point][1]))
             painter.drawRect(rect)
+
+        # Grat points for calibration places
+        radius = 10
+        painter.setPen(QPen(QColor('gray'), 1))
+        painter.setBrush(QColor('gray'))
+        for point in self._grayPoints:
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         # Calibration dots of different collors
         pen = QPen()
@@ -948,6 +999,7 @@ class PointsPainter(QThread):
         painter.setBrush(QColor('transparent'))
         for point in self._activeZoneCircles:
             for radius in self._activeZoneCircles[point]:
+                radius = int(radius)
                 painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
         
         # Zones purple dash lines
@@ -957,6 +1009,7 @@ class PointsPainter(QThread):
             for radius in self._activeZoneCircles[point]:
                 if (self._vehicle_size[0]/2 <= radius):
                     angle = int(180/3.14*math.acos(self._vehicle_size[0]/(radius*2)))
+                    radius = int(radius)
                     painter.drawArc(point[0]-radius, point[1]-radius, 
                                     radius*2, radius*2, 
                                     -angle*16, -(180 - 2*angle) * 16)
