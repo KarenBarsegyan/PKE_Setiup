@@ -20,6 +20,7 @@ from functools import partial
 import json
 from json import JSONEncoder
 from keys_data import KeysData, KeysDataAverage
+import math 
 
 
 class NumpyArrayEncoder(JSONEncoder):
@@ -38,7 +39,7 @@ class PointsPainter(QThread):
     def __init__(self, askForPollingFunc, parent=None):
         QThread.__init__(self, parent)
 
-        ###### Settings ######
+        ############ Settings ############
 
         # Mesh size relatively to screen resolution 
         self._mesh_step = 25
@@ -46,7 +47,19 @@ class PointsPainter(QThread):
         # Calc some real dist and amount mesh steps inside this dist
         amount_of_mesh_steps = 24
         distance_of_this_steps = 1500
-        ######################
+
+        # Picture Settings
+        self._vehicle_pic_name = 'pictures/vesta_top_view.png'
+        self._canvas_width = 1000
+        self._canvas_height = 1500
+        self._picture_height = 1200
+        self._picture_shift_hor = 18
+
+        # Vehicle size
+        self._vehicle_top_left_angle = tuple([225, 200])
+        self._vehicle_size = tuple([600, 1000])
+
+        #################################
 
         # Mesh step to real size
         self._dist_to_mesh_coeff = distance_of_this_steps/(self._mesh_step * amount_of_mesh_steps)
@@ -73,6 +86,7 @@ class PointsPainter(QThread):
         self._store_data_path = ''
         self._keyChosen = 0
         self._rssiFloatingWindowIsHidden = True
+        self._key_inside = 0
 
         self._yellow_radius = 0
         self._yellowAnimation = QPropertyAnimation(self, b"yellow_radius", self)
@@ -274,7 +288,7 @@ class PointsPainter(QThread):
                 nAnt = self._antPoints[antPos] 
                 if nAnt == 3:
                     pos = antPos
-                    self._zoneCircles[pos] = [200, 300, 400, 500, 600, 700, 800]
+                    self._zoneCircles[pos] = [300, 400, 500, 600, 700, 800]
                     break
                 
             # print(f"Mean val: {self._distCoeff}")
@@ -742,12 +756,7 @@ class PointsPainter(QThread):
         return None
 
     def _paintMainPic(self, label):
-        canvas_width = 1000
-        canvas_height = 1500
-        picture_height = 1200
-        picture_shift_hor = 18
-
-        canvas = QPixmap(canvas_width, canvas_height)
+        canvas = QPixmap(self._canvas_width, self._canvas_height)
         canvas.fill(Qt.white)
         label.setPixmap(canvas)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -756,13 +765,13 @@ class PointsPainter(QThread):
 
         painter = QPainter(label.pixmap())
 
-        pixmap = QPixmap('pictures/vesta_top_view.png')
-        pixmap = pixmap.scaledToHeight(picture_height)
-        painter.drawPixmap(canvas_width//2 - pixmap.width()//2 + picture_shift_hor,
-                           canvas_height//2 - pixmap.height()//2, 
+        pixmap = QPixmap(self._vehicle_pic_name)
+        pixmap = pixmap.scaledToHeight(self._picture_height)
+        painter.drawPixmap(self._canvas_width//2 - pixmap.width()//2 + self._picture_shift_hor,
+                           self._canvas_height//2 - pixmap.height()//2, 
                            pixmap)
         
-        self._vehicleEdgeRect[tuple([225, 200])] = tuple([600, 1000])
+        self._vehicleEdgeRect[self._vehicle_top_left_angle] = self._vehicle_size
         
         self._picWidth = canvas.width()
         self._picHeight = canvas.height()
@@ -792,9 +801,35 @@ class PointsPainter(QThread):
         self._calibrationLabel.clear()
 
         self._paintMainPic(self._calibrationLabel)
+        painter = QPainter(self._calibrationLabel.pixmap())
+
+        # Zones full circles dash lines
+        painter.setPen(QPen(QColor('gray'), 3, Qt.DotLine))
+        painter.setBrush(QColor('transparent'))
+        for point in self._zoneCircles:
+            for radius in self._zoneCircles[point]:
+                painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+        
+        # Zones purple dash lines
+        painter.setPen(QPen(QColor('purple'), 5))
+        painter.setBrush(QColor('transparent'))
+        for point in self._zoneCircles:
+            for radius in self._zoneCircles[point]:
+                angle = int(180/3.14*math.acos(self._vehicle_size[0]/(radius*2)))
+                painter.drawArc(point[0]-radius, point[1]-radius, 
+                                radius*2, radius*2, 
+                                -angle*16, -(180 - 2*angle) * 16)
+    
+        # Edge rect
+        painter.setPen(QPen(QColor('purple'), 5))
+        painter.setBrush(QColor('transparent'))
+        for point in self._vehicleEdgeRect:
+            rect = QRect(QPoint(point[0], point[1]), 
+                         QSize(self._vehicleEdgeRect[point][0], 
+                               self._vehicleEdgeRect[point][1]))
+            painter.drawRect(rect)
 
         # Calibration dots of different collors
-        painter = QPainter(self._calibrationLabel.pixmap())
         pen = QPen()
         radius = 10
         pen.setWidth(1)
@@ -840,22 +875,6 @@ class PointsPainter(QThread):
             painter.setBrush(color)
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        # Zones purple dash lines
-        painter.setPen(QPen(QColor('purple'), 3, Qt.DashLine))
-        painter.setBrush(QColor('transparent'))
-        for point in self._zoneCircles:
-            for radius in self._zoneCircles[point]:
-                painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
-    
-        # Edge rect
-        painter.setPen(QPen(QColor('brown'), 3))
-        painter.setBrush(QColor('transparent'))
-        for point in self._vehicleEdgeRect:
-            rect = QRect(QPoint(point[0], point[1]), 
-                         QSize(self._vehicleEdgeRect[point][0], 
-                               self._vehicleEdgeRect[point][1]))
-            painter.drawRect(rect)
-
         self._calibrationLabel.update()
 
     def _paintMeasureEvent(self, event = None):
@@ -897,6 +916,22 @@ class PointsPainter(QThread):
         for point in self._keyCircles:
             radius = self._keyCircles[point]
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+
+        # Edge rect
+        painter.setPen(QPen(QColor('purple'), 5))
+
+        if self._key_inside == 0:
+            painter.setBrush(QColor('transparent'))
+        elif self._key_inside == 1:
+            painter.setBrush(QColor(0, 255, 0, 50))
+        else:
+            painter.setBrush(QColor(255, 0, 0, 50))
+
+        for point in self._vehicleEdgeRect:
+            rect = QRect(QPoint(point[0], point[1]), 
+                         QSize(self._vehicleEdgeRect[point][0], 
+                               self._vehicleEdgeRect[point][1]))
+            painter.drawRect(rect)
 
         self._measureLabel.update()
 
