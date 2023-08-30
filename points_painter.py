@@ -58,6 +58,8 @@ class PointsPainter(QThread):
         # Vehicle size
         self._vehicle_top_left_angle = tuple([225, 200])
         self._vehicle_size = tuple([600, 1000])
+        self._zones = [200, 300, 400, 500, 600, 700, 800]
+        self._first_ant = 4
 
         #################################
 
@@ -67,10 +69,12 @@ class PointsPainter(QThread):
         self._highlitedPoints = dict()
         self._yellowPoints = dict()
         self._redPoints = dict()
+        self._purplePoints = dict()
         self._bluePoints = dict()
         self._darkRedPoints = dict()
         self._keyCircles = dict()
         self._zoneCircles = dict()
+        self._activeZoneCircles = dict()
         self._vehicleEdgeRect = dict()
         self._antPoints = dict()
         self._lastPos = tuple()
@@ -282,15 +286,10 @@ class PointsPainter(QThread):
 
     def Calibrate(self):
         # try:
-            pos = tuple()
+        # for point in self._greenPoints:
+        pass
+            
 
-            for antPos in self._antPoints:
-                nAnt = self._antPoints[antPos] 
-                if nAnt == 3:
-                    pos = antPos
-                    self._zoneCircles[pos] = [300, 400, 500, 600, 700, 800]
-                    break
-                
             # print(f"Mean val: {self._distCoeff}")
             # print("--------------------------------\n")
         # except Exception as exc:
@@ -380,6 +379,8 @@ class PointsPainter(QThread):
         # try:
             self._keyCircles.clear()
 
+            dist_from_first_ant = 0
+            pos_first_ant = tuple()
             for antPos in self._antPoints:
                 nAnt = self._antPoints[antPos] 
                 self._calcDistFromCalibrationData(nAnt)
@@ -415,6 +416,10 @@ class PointsPainter(QThread):
 
                     self._keyCircles[antPos] = res / self._dist_to_mesh_coeff
 
+                    if nAnt == self._first_ant - 1:
+                        dist_from_first_ant = self._keyCircles[antPos]
+                        pos_first_ant = antPos
+
             points = set()
             self._bluePoints.clear()
             for circ1 in self._keyCircles:
@@ -429,6 +434,59 @@ class PointsPainter(QThread):
             for p in points:
                 pointsList.append(p)
             self._findKeyPoint(pointsList)
+
+            self._key_inside = 0
+            if pos_first_ant != tuple() and self._greenPoints:
+
+                minDist = float('inf')
+                greenPointMin = tuple()
+                for point in self._greenPoints:
+                    dist = ((point[0] - pos_first_ant[0])**2 + (point[1] - pos_first_ant[1])**2)**0.5
+
+                    if abs(minDist - dist_from_first_ant) > abs(dist - dist_from_first_ant):
+                        minDist = dist
+                        greenPointMin = point
+                        self._purplePoints.clear()
+                        self._purplePoints[point] = 0
+
+                distBetween = minDist - dist_from_first_ant
+                print(distBetween)
+
+                minRadius = float('inf')
+                for point in self._zoneCircles:
+                    for radius in self._zoneCircles[point]:
+                        if abs(minRadius - minDist) > abs(radius - minDist):
+                            minRadius = radius
+                            self._activeZoneCircles.clear()
+                            self._activeZoneCircles[point] = [radius]
+
+                self._key_inside = 1
+                dataToCompare = self._greenPoints[greenPointMin].dataRMS
+ 
+                badAnts = set()
+                minAntRSSI = float('inf')
+                for antPos in self._antPoints:
+                    nAnt = self._antPoints[antPos] 
+
+                    if nAnt != self._first_ant - 1 and dataToCompare[nAnt] != 0:
+                        minAntRSSI = min(minAntRSSI, dataToCompare[nAnt])
+                        print("Ant: ", nAnt+1, "green RSSI: ", dataToCompare[nAnt])
+                
+                print("RSSI to Comp: ", minAntRSSI)
+
+                for antPos in self._antPoints:
+                    nAnt = self._antPoints[antPos] 
+                    if nAnt != self._first_ant - 1 and dataToCompare[nAnt] != 0:
+                        sumRSSI = 0
+                        for i in range(3):
+                            sumRSSI += self._ants_keys_data.one_key_data[nAnt][i]**2
+                        sumRSSI = sumRSSI ** (0.5)
+                        print("Ant: ", nAnt+1, "Real RSSI: ", sumRSSI)
+                        if (minAntRSSI > sumRSSI):
+                            self._key_inside = 2
+                            badAnts.add(nAnt+1)
+
+                print(badAnts)
 
             self._paintMeasureEvent()
         # except Exception as exc:
@@ -610,16 +668,12 @@ class PointsPainter(QThread):
             else:
                 self._setAntAction.setVisible(False)
 
-            Data = self._ants_keys_data
-
             self._ant_num_action.setVisible(False)
 
         elif self._whichPointPlaced() == self.PointType.Green:
             self._writeRSSIAction.setVisible(False)
             self._deletePointAction.setVisible(True)
             self._setAntAction.setVisible(False)
-
-            Data = self._greenPoints[self._lastPos]
 
             self._ant_num_action.setVisible(False)
 
@@ -631,8 +685,6 @@ class PointsPainter(QThread):
             self._writeRSSIAction.setVisible(True)
             self._writeRSSIAction.setText("Polling in progress...")
             self._writeRSSIAction.setDisabled(True)
-
-            Data = self._ants_keys_data
 
             self._ant_num_action.setVisible(False)
 
@@ -648,10 +700,6 @@ class PointsPainter(QThread):
             return
         else:
             return
-
-        # self._RSSI_x_action.setText(f"X: {' '*(3-len(str(Data[0][0][0])))}{Data[0][0][0]}")
-        # self._RSSI_y_action.setText(f"Y: {' '*(3-len(str(Data[0][0][1])))}{Data[0][0][1]}")
-        # self._RSSI_z_action.setText(f"Z: {' '*(3-len(str(Data[0][0][2])))}{Data[0][0][2]}")
             
     def _deletePoint(self, coords:tuple() = None) -> PointType:
         type = None
@@ -772,6 +820,13 @@ class PointsPainter(QThread):
                            pixmap)
         
         self._vehicleEdgeRect[self._vehicle_top_left_angle] = self._vehicle_size
+        pos = tuple()
+        for antPos in self._antPoints:
+            nAnt = self._antPoints[antPos] 
+            if nAnt == self._first_ant-1:
+                pos = antPos
+                self._zoneCircles[pos] = self._zones
+                break
         
         self._picWidth = canvas.width()
         self._picHeight = canvas.height()
@@ -815,10 +870,13 @@ class PointsPainter(QThread):
         painter.setBrush(QColor('transparent'))
         for point in self._zoneCircles:
             for radius in self._zoneCircles[point]:
-                angle = int(180/3.14*math.acos(self._vehicle_size[0]/(radius*2)))
-                painter.drawArc(point[0]-radius, point[1]-radius, 
-                                radius*2, radius*2, 
-                                -angle*16, -(180 - 2*angle) * 16)
+                if (self._vehicle_size[0]/2 <= radius):
+                    angle = int(180/3.14*math.acos(self._vehicle_size[0]/(radius*2)))
+                    painter.drawArc(point[0]-radius, point[1]-radius, 
+                                    radius*2, radius*2, 
+                                    -angle*16, -(180 - 2*angle) * 16)
+                else:
+                    painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
     
         # Edge rect
         painter.setPen(QPen(QColor('purple'), 5))
@@ -884,23 +942,44 @@ class PointsPainter(QThread):
 
         painter = QPainter(self._measureLabel.pixmap())
 
-        radius = 10
-        painter.setPen(QPen(QColor('red'), 1))
-        painter.setBrush(QColor('red'))
-        for point in self._redPoints:
-            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        radius = 3
-        painter.setPen(QPen(QColor('blue'), 1))
-        painter.setBrush(QColor('blue'))
-        for point in self._bluePoints:
-            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+        # Zones full circles dash lines
+        painter.setPen(QPen(QColor('gray'), 3, Qt.DotLine))
+        painter.setBrush(QColor('transparent'))
+        for point in self._activeZoneCircles:
+            for radius in self._activeZoneCircles[point]:
+                painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+        
+        # Zones purple dash lines
+        painter.setPen(QPen(QColor('purple'), 5))
+        painter.setBrush(QColor('transparent'))
+        for point in self._activeZoneCircles:
+            for radius in self._activeZoneCircles[point]:
+                if (self._vehicle_size[0]/2 <= radius):
+                    angle = int(180/3.14*math.acos(self._vehicle_size[0]/(radius*2)))
+                    painter.drawArc(point[0]-radius, point[1]-radius, 
+                                    radius*2, radius*2, 
+                                    -angle*16, -(180 - 2*angle) * 16)
+                else:
+                    painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        radius = 4
-        painter.setPen(QPen(QColor('darkRed'), 1))
-        painter.setBrush(QColor('darkRed'))
-        for point in self._darkRedPoints:
-            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+        # radius = 10
+        # painter.setPen(QPen(QColor('red'), 1))
+        # painter.setBrush(QColor('red'))
+        # for point in self._redPoints:
+        #     painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+
+        # radius = 3
+        # painter.setPen(QPen(QColor('blue'), 1))
+        # painter.setBrush(QColor('blue'))
+        # for point in self._bluePoints:
+        #     painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+
+        # radius = 4
+        # painter.setPen(QPen(QColor('darkRed'), 1))
+        # painter.setBrush(QColor('darkRed'))
+        # for point in self._darkRedPoints:
+        #     painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         size = 20
         painter.setPen(QPen(QColor('orange'), 1))
@@ -932,6 +1011,14 @@ class PointsPainter(QThread):
                          QSize(self._vehicleEdgeRect[point][0], 
                                self._vehicleEdgeRect[point][1]))
             painter.drawRect(rect)
+
+
+        radius = 10
+        painter.setPen(QPen(QColor('pink'), 1))
+        painter.setBrush(QColor('pink'))
+        for point in self._purplePoints:
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+
 
         self._measureLabel.update()
 
