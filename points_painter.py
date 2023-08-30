@@ -865,38 +865,26 @@ class PointsPainter(QThread):
 
         painter = QPainter(self._measureLabel.pixmap())
 
-        pen = QPen()
         radius = 10
-        pen.setWidth(1)
-        pen.setColor(QColor('red'))
-        painter.setPen(pen)
+        painter.setPen(QPen(QColor('red'), 1))
         painter.setBrush(QColor('red'))
         for point in self._redPoints:
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        pen = QPen()
         radius = 3
-        pen.setWidth(1)
-        pen.setColor(QColor('blue'))
-        painter.setPen(pen)
+        painter.setPen(QPen(QColor('blue'), 1))
         painter.setBrush(QColor('blue'))
         for point in self._bluePoints:
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        pen = QPen()
         radius = 4
-        pen.setWidth(1)
-        pen.setColor(QColor('darkRed'))
-        painter.setPen(pen)
+        painter.setPen(QPen(QColor('darkRed'), 1))
         painter.setBrush(QColor('darkRed'))
         for point in self._darkRedPoints:
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        pen = QPen()
         size = 20
-        pen.setWidth(1)
-        pen.setColor(QColor('orange'))
-        painter.setPen(pen)
+        painter.setPen(QPen(QColor('orange'), 1))
         painter.setBrush(QColor('orange'))
         for point in self._antPoints:
             rect = QRect(QPoint(point[0]-size//2, 
@@ -904,15 +892,11 @@ class PointsPainter(QThread):
                          QSize(size, size))
             painter.drawRect(rect)
 
-        pen = QPen()
-        pen.setWidth(3)
-        pen.setColor(QColor('blue'))
-        painter.setPen(pen)
+        painter.setPen(QPen(QColor('blue'), 1))
         painter.setBrush(QColor('transparent'))
         for point in self._keyCircles:
             radius = self._keyCircles[point]
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
-
 
         self._measureLabel.update()
 
