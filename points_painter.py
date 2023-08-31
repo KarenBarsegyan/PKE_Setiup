@@ -564,16 +564,17 @@ class PointsPainter(QThread):
 
 
                     # Check if key is inside or not
-                    self._key_inside = 1 
-                    RSSIToCompare = self._greenPoints[leftRightPosOfClosest].dataRMS[antToCompare]
+                    if leftRightPosOfClosest in self._greenPoints:
+                        self._key_inside = 1 
+                        RSSIToCompare = self._greenPoints[leftRightPosOfClosest].dataRMS[antToCompare]
                     
-                    mainRSSI = 0
-                    for i in range(3):
-                        mainRSSI += self._ants_keys_data.one_key_data[antToCompare][i]**2
-                    mainRSSI = mainRSSI ** (0.5)
+                        mainRSSI = 0
+                        for i in range(3):
+                            mainRSSI += self._ants_keys_data.one_key_data[antToCompare][i]**2
+                        mainRSSI = mainRSSI ** (0.5)
 
-                    if mainRSSI < RSSIToCompare:
-                        self._key_inside = 2
+                        if mainRSSI < RSSIToCompare:
+                            self._key_inside = 2
 
 
 
