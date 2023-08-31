@@ -59,12 +59,15 @@ class PointsPainter(QThread):
         # Vehicle size
         self._vehicle_top_left_angle = tuple([225, 200])
         self._vehicle_size = tuple([600, 1000])
-        self._zones_step_size_setup = 3
-        self._first_ant = 4
+        self._zones_step_size_setup = 2
+        self._first_ant = 4 - 1
+        self._left_ant  = 1 - 1
+        self._right_ant = 2 - 1
 
         #################################
 
         # Mesh step to real size
+        self._ants_to_check_key_location = [self._left_ant, self._right_ant]
         self._zones_step_size = self._mesh_step * 2 * self._zones_step_size_setup
         self._dist_to_mesh_coeff = distance_of_this_steps/(self._mesh_step * amount_of_mesh_steps)
         self._greenPoints = dict()
@@ -78,9 +81,10 @@ class PointsPainter(QThread):
         self._keyCircles = dict()
         self._zoneCircles = dict()
         self._zoneRssi = dict()
-        self._activeZoneCircles = dict()
+        self._active_zone_circles = dict()
         self._vehicleEdgeRect = dict()
         self._antPoints = dict()
+        self._checkedAntPoints = dict()
         self._lastPos = tuple()
         self._lastYellowPos = tuple()
         self._yellowPointInProgress = False
@@ -294,15 +298,17 @@ class PointsPainter(QThread):
         #     self._logger.warning(f"No data to _calibrate: {exc}")
 
     def _paintZones(self):
+        self._vehicleEdgeRect.clear()
         self._vehicleEdgeRect[self._vehicle_top_left_angle] = self._vehicle_size
         self._grayPoints.clear()
+        self._zoneCircles.clear()
 
         aSize = self._vehicle_size[0]/2
 
         zonePos = tuple()
         for antPos in self._antPoints:
             nAnt = self._antPoints[antPos] 
-            if nAnt == self._first_ant-1:
+            if nAnt == self._first_ant:
                 zonePos = antPos
 
         if zonePos != tuple():
@@ -312,12 +318,17 @@ class PointsPainter(QThread):
 
             for zoneLeftDist in range(0, self._vehicle_size[1] - topPart, self._zones_step_size):
                 radius = (zoneLeftDist**2 + aSize**2)**0.5
-                if(radius > aSize):
+                if(radius >= aSize):
                     self._zoneCircles[zonePos].append(radius)
-                    x = self._vehicle_top_left_angle[0]
+                    x1 = self._vehicle_top_left_angle[0]
+                    x2 = self._vehicle_top_left_angle[0] + self._vehicle_size[0]
                     y = zonePos[1] + zoneLeftDist + self._zones_step_size/2
-                    pos = tuple([int(x), int(y)])
                     if (y < self._vehicle_top_left_angle[1] + self._vehicle_size[1]):
+                        pos = tuple([int(x1), int(y)])
+                        if pos not in self._greenPoints and pos not in self._yellowPoints:
+                            self._grayPoints[pos] = 0
+
+                        pos = tuple([int(x2), int(y)])
                         if pos not in self._greenPoints and pos not in self._yellowPoints:
                             self._grayPoints[pos] = 0
 
@@ -458,66 +469,115 @@ class PointsPainter(QThread):
     def _findZone(self):
         # try:
             self._key_inside = 0
-            
-            upperMin = float('inf')
-            bottomMin = float('inf')
-            for greenPoint in self._greenPoints:
-                greenRSSI = self._greenPoints[greenPoint].dataRMS
+
+            # If calibration was done at least in one point
+            if self._greenPoints:
+
+                # Find measured in real time RMS RSSI
+                mainRSSI = 0
+                for i in range(3):
+                    mainRSSI += self._ants_keys_data.one_key_data[self._first_ant][i]**2
+                mainRSSI = mainRSSI ** (0.5)
+
+                # Find measured in real time RMS RSSI
+                closestRSSI = float('inf')
+                posOfClosest = tuple()
+                for greenPoint in self._greenPoints:
+                    greenRSSI = self._greenPoints[greenPoint].dataRMS
+                    if (abs(mainRSSI - closestRSSI) > abs(mainRSSI - greenRSSI[self._first_ant])) and greenRSSI[self._first_ant] != 0:
+                        closestRSSI = greenRSSI[self._first_ant]
+                        posOfClosest = greenPoint
+
+                # Find RSSIs from left and right ant
+                mainRSSILeft = 0
+                for i in range(3):
+                    mainRSSILeft += self._ants_keys_data.one_key_data[self._left_ant][i]**2
+                mainRSSILeft = mainRSSILeft ** (0.5)
                 
-                
+                mainRSSIRight = 0
+                for i in range(3):
+                    mainRSSIRight += self._ants_keys_data.one_key_data[self._right_ant][i]**2
+                mainRSSIRight = mainRSSIRight ** (0.5)
+
+                # Add to closest point it's mirror point
+                leftRightPosOfClosest = tuple()
+                antToCompare = 0
+
+                if posOfClosest[0] == self._vehicle_top_left_angle[0] and mainRSSILeft > mainRSSIRight:
+                    leftRightPosOfClosest = posOfClosest
+                    antToCompare = self._right_ant
+
+                elif posOfClosest[0] == self._vehicle_top_left_angle[0] and mainRSSILeft <= mainRSSIRight:
+                    leftRightPosOfClosest = tuple([posOfClosest[0] + self._vehicle_size[0], posOfClosest[1]])
+                    antToCompare = self._left_ant
+
+                elif posOfClosest[0] == self._vehicle_top_left_angle[0] + self._vehicle_size[0] and mainRSSILeft < mainRSSIRight:
+                    leftRightPosOfClosest = posOfClosest
+                    antToCompare = self._left_ant
+
+                elif posOfClosest[0] == self._vehicle_top_left_angle[0] + self._vehicle_size[0] and mainRSSILeft >= mainRSSIRight:
+                    leftRightPosOfClosest = tuple([posOfClosest[0] - self._vehicle_size[0], posOfClosest[1]])
+                    antToCompare = self._right_ant
+
+                # if left and right points are found
+                if leftRightPosOfClosest:
+                    # Show point to compare
+                    self._purplePoints.clear()
+                    self._purplePoints[leftRightPosOfClosest] = 0
+
+                    # Find coords of first Ant
+                    zonePos = tuple()
+                    for antPos in self._antPoints:
+                        nAnt = self._antPoints[antPos] 
+                        if nAnt == self._first_ant:
+                            zonePos = antPos
+
+                    # Show zone circles
+                    radiusFromClosest = ((leftRightPosOfClosest[0] - zonePos[0])**2 + 
+                                         (leftRightPosOfClosest[1] - zonePos[1])**2)**0.5
+                    upperMin = float('inf')
+                    bottomMin = float('inf')
+                    upperRadius = 0
+                    bottomRadius = 0
+                    posZone = tuple()
+
+                    for pos in self._zoneCircles:
+                        posZone = pos
+                        for radius in self._zoneCircles[pos]:
+                            if radius - radiusFromClosest > 0 and radius - radiusFromClosest < upperMin:
+                                upperMin = radius - radiusFromClosest
+                                upperRadius = radius
+                            
+                            if radiusFromClosest - radius > 0 and radiusFromClosest - radius < bottomMin:
+                                bottomMin = radiusFromClosest - radius
+                                bottomRadius = radius
+
+                    self._active_zone_circles[posZone] = [upperRadius, bottomRadius]
+
+                    # Show ant to compare
+                    self._checkedAntPoints.clear()
+                    for antPos in self._antPoints:
+                        nAnt = self._antPoints[antPos]
+    
+                        if nAnt == antToCompare:
+                            self._checkedAntPoints[antPos] = 0
 
 
-            #     minDist = float('inf')
-            #     greenPointMin = tuple()
-            #     for point in self._greenPoints:
-            #         dist = ((point[0] - pos_first_ant[0])**2 + (point[1] - pos_first_ant[1])**2)**0.5
+                    # Check if key is inside or not
+                    self._key_inside = 1 
+                    RSSIToCompare = self._greenPoints[leftRightPosOfClosest].dataRMS[antToCompare]
+                    
+                    mainRSSI = 0
+                    for i in range(3):
+                        mainRSSI += self._ants_keys_data.one_key_data[antToCompare][i]**2
+                    mainRSSI = mainRSSI ** (0.5)
 
-            #         if abs(minDist - dist_from_first_ant) > abs(dist - dist_from_first_ant):
-            #             minDist = dist
-            #             greenPointMin = point
-            #             self._purplePoints.clear()
-            #             self._purplePoints[point] = 0
+                    if mainRSSI < RSSIToCompare:
+                        self._key_inside = 2
 
-            #     distBetween = minDist - dist_from_first_ant
-            #     print(distBetween)
 
-            #     minRadius = float('inf')
-            #     for point in self._zoneCircles:
-            #         for radius in self._zoneCircles[point]:
-            #             if abs(minRadius - minDist) > abs(radius - minDist):
-            #                 minRadius = radius
-            #                 self._activeZoneCircles.clear()
-            #                 self._activeZoneCircles[point] = [radius]
 
-            #     self._key_inside = 1
-            #     dataToCompare = self._greenPoints[greenPointMin].dataRMS
- 
-            #     badAnts = set()
-            #     minAntRSSI = float('inf')
-            #     for antPos in self._antPoints:
-            #         nAnt = self._antPoints[antPos] 
-
-            #         if nAnt != self._first_ant - 1 and dataToCompare[nAnt] != 0:
-            #             minAntRSSI = min(minAntRSSI, dataToCompare[nAnt])
-            #             print("Ant: ", nAnt+1, "green RSSI: ", dataToCompare[nAnt])
-                
-            #     print("RSSI to Comp: ", minAntRSSI)
-
-            #     for antPos in self._antPoints:
-            #         nAnt = self._antPoints[antPos] 
-            #         if nAnt != self._first_ant - 1 and dataToCompare[nAnt] != 0:
-            #             sumRSSI = 0
-            #             for i in range(3):
-            #                 sumRSSI += self._ants_keys_data.one_key_data[nAnt][i]**2
-            #             sumRSSI = sumRSSI ** (0.5)
-            #             print("Ant: ", nAnt+1, "Real RSSI: ", sumRSSI)
-            #             if (minAntRSSI > sumRSSI):
-            #                 self._key_inside = 2
-            #                 badAnts.add(nAnt+1)
-
-            #     print(badAnts)
-
-            # self._paintMeasureEvent()
+            self._paintMeasureEvent()
         # except Exception as exc:
         #     self._logger.warning(f"Calc Distance Error: {exc}")
 
@@ -767,6 +827,7 @@ class PointsPainter(QThread):
         
         if pos in self._antPoints.keys():
             del self._antPoints[pos]
+            self._greenPoints.clear()
             type = self.PointType.Ant
 
         self._calibrate()
@@ -997,16 +1058,16 @@ class PointsPainter(QThread):
         # Zones full circles dash lines
         painter.setPen(QPen(QColor('gray'), 3, Qt.DotLine))
         painter.setBrush(QColor('transparent'))
-        for point in self._activeZoneCircles:
-            for radius in self._activeZoneCircles[point]:
+        for point in self._active_zone_circles:
+            for radius in self._active_zone_circles[point]:
                 radius = int(radius)
                 painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
         
         # Zones purple dash lines
         painter.setPen(QPen(QColor('purple'), 5))
         painter.setBrush(QColor('transparent'))
-        for point in self._activeZoneCircles:
-            for radius in self._activeZoneCircles[point]:
+        for point in self._active_zone_circles:
+            for radius in self._active_zone_circles[point]:
                 if (self._vehicle_size[0]/2 <= radius):
                     angle = int(180/3.14*math.acos(self._vehicle_size[0]/(radius*2)))
                     radius = int(radius)
@@ -1038,6 +1099,15 @@ class PointsPainter(QThread):
         painter.setPen(QPen(QColor('orange'), 1))
         painter.setBrush(QColor('orange'))
         for point in self._antPoints:
+            rect = QRect(QPoint(point[0]-size//2, 
+                                point[1]-size//2), 
+                         QSize(size, size))
+            painter.drawRect(rect)
+
+        size = 35
+        painter.setPen(QPen(QColor('red'), 1))
+        painter.setBrush(QColor('red'))
+        for point in self._checkedAntPoints:
             rect = QRect(QPoint(point[0]-size//2, 
                                 point[1]-size//2), 
                          QSize(size, size))
