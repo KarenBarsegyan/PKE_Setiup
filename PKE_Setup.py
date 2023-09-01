@@ -281,7 +281,7 @@ class MainWindow(QMainWindow):
         # is choosen. Othrwise use saveNewFileWindow
         filename = self._store_data_path
         if filename != '':
-            # try:
+            try:
                 # Check if data was changed or not
                 with open(f'{self._store_data_path}', 'r') as f:
                     to_json = json.load(f)
@@ -301,8 +301,8 @@ class MainWindow(QMainWindow):
                     if return_value == QMessageBox.Yes:
                         self._saveFile()
 
-            # except Exception as exc:
-            #     self._logger.warning(f"Show Save Window error: {exc}")
+            except Exception as exc:
+                self._logger.warning(f"Show Save Window error: {exc}")
 
     def _showSaveNewFileWindow(self):
         filename = self._store_data_path
@@ -387,7 +387,7 @@ class MainWindow(QMainWindow):
         self._points_painter.clearData()
 
     def _restoreData(self):
-        # try:
+        try:
             with open(f'{self._store_data_path}') as f:
                 all_ants_data = json.load(f)
 
@@ -432,10 +432,10 @@ class MainWindow(QMainWindow):
             # Restore Key for calibration choice
             self._widgetKeyForMeasure.setCurrentIndex(keys_ants_data['key_for_calibration'])
 
-        # except Exception as exc:
-        #     self.setWindowTitle(f"PKE Setup - File Was deleted or moved")
-        #     self._store_data_path_value = ""
-        #     self._logger.warning(f"No such file in restore: {exc}")
+        except Exception as exc:
+            self.setWindowTitle(f"PKE Setup - File Was deleted or moved")
+            self._store_data_path_value = ""
+            self._logger.warning(f"No such file in restore: {exc}")
 
     def _saveFile(self):
         if self._store_data_path == "":
@@ -503,7 +503,7 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"PKE Setup - {filename[:-len('.pkesetup')]}")
 
     def _closeFile(self):
-        # If user tries to close file which was changed, ask to save it
+        # If user tries to close changed file, ask to save it
         self._showSaveWindow() 
 
         self._store_data_path = ''

@@ -126,7 +126,7 @@ class PointsPainter(QThread):
         self._logger.setLevel(logging.WARNING)
 
     def restoreData(self, path):
-        # try:
+        try:
             with open(f'{path}') as f:
                 allData = json.load(f)
 
@@ -153,8 +153,8 @@ class PointsPainter(QThread):
             self._paintCalibrationEvent()
             self._paintMeasureEvent()
 
-        # except Exception as exc:
-        #     self._logger.warning(f"No points data yet: {exc}")
+        except Exception as exc:
+            self._logger.warning(f"No points data yet: {exc}")
 
     def saveData(self, path):
         to_json = {}
@@ -194,12 +194,24 @@ class PointsPainter(QThread):
 
     def clearData(self):
         self._greenPoints.clear()
+        self._grayPoints.clear()
+        self._highlitedPoints.clear()
         self._yellowPoints.clear()
         self._redPoints.clear()
+        self._purplePoints.clear()
         self._bluePoints.clear()
         self._darkRedPoints.clear()
         self._keyCircles.clear()
+        self._zoneCircles.clear()
+        self._zoneRssi.clear()
+        self._active_zone_circles.clear()
+        self._vehicleEdgeRect.clear()
         self._antPoints.clear()
+        self._checkedAntPoints.clear()
+
+        self._paintCalibrationEvent()
+        self._paintMeasureEvent()
+
         
     def rememberData(self, Data, authStat, isDone):
         self._ants_keys_data.key_num = Data.key_num
