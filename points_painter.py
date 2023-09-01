@@ -298,7 +298,7 @@ class PointsPainter(QThread):
         self._min_rssi = 0
 
         # print(nAnt)
-        if nAnt == 0:
+        if nAnt == 0 or nAnt == 1:
             # Door ant
             self._dist_to_mesh_coeff = 9.5
 
@@ -868,14 +868,6 @@ class PointsPainter(QThread):
 
         painter = QPainter(self._measureLabel.pixmap())
 
-        pen = QPen()
-        radius = 10
-        pen.setWidth(1)
-        pen.setColor(QColor('red'))
-        painter.setPen(pen)
-        painter.setBrush(QColor('red'))
-        for point in self._redPoints:
-            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         pen = QPen()
         radius = 3
@@ -916,6 +908,14 @@ class PointsPainter(QThread):
             radius = self._keyCircles[point]
             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
+        pen = QPen()
+        radius = 10
+        pen.setWidth(1)
+        pen.setColor(QColor('red'))
+        painter.setPen(pen)
+        painter.setBrush(QColor('red'))
+        for point in self._redPoints:
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         self._measureLabel.update()
 
