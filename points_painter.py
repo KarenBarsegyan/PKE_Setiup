@@ -46,23 +46,23 @@ class PointsPainter(QThread):
         self._mesh_step = 25
 
         # Calc some real dist and amount mesh steps inside this dist
-        amount_of_mesh_steps = 24
+        amount_of_mesh_steps = 18
         distance_of_this_steps = 1500
 
         # Picture Settings
-        self._vehicle_pic_name = 'pictures/vesta_top_view.png'
+        self._vehicle_pic_name = 'pictures/GAZ_Top_View.jpg'
         self._canvas_width = 1000
-        self._canvas_height = 1500
-        self._picture_height = 1200
-        self._picture_shift_hor = 18
+        self._canvas_height = 1800
+        self._picture_height = 1300
+        self._picture_shift_hor = 0
 
         # Vehicle size
-        self._vehicle_top_left_angle = tuple([225, 200])
-        self._vehicle_size = tuple([600, 1000])
+        self._vehicle_top_left_angle = tuple([275, 450])
+        self._vehicle_size = tuple([450, 325])
         self._zones_step_size_setup = 2
-        self._first_ant = 4 - 1
-        self._left_ant  = 1 - 1
-        self._right_ant = 2 - 1
+        self._first_ant = 1 - 1
+        self._left_ant  = 4 - 1
+        self._right_ant = 3 - 1
 
         #################################
 
@@ -211,7 +211,6 @@ class PointsPainter(QThread):
 
         self._paintCalibrationEvent()
         self._paintMeasureEvent()
-
         
     def rememberData(self, Data, authStat, isDone):
         self._ants_keys_data.key_num = Data.key_num
@@ -352,7 +351,6 @@ class PointsPainter(QThread):
         self._min_rssi = 0
         self._min_rssi = 0
 
-        # print(nAnt)
         if nAnt == 0 or nAnt == 1:
             # Door ant
             self._distances[self._convNum(6520)] = 200
@@ -422,7 +420,7 @@ class PointsPainter(QThread):
             self._min_rssi = min(self._distances.keys())
             self._max_rssi = max(self._distances.keys())
         except: 
-            print("loh")
+            pass
 
     def _calcDistance(self):
         # try:
@@ -987,6 +985,7 @@ class PointsPainter(QThread):
         painter.setBrush(QColor('transparent'))
         for point in self._zoneCircles:
             for radius in self._zoneCircles[point]:
+                aSize = self._vehicle_size[0]/2
                 if (self._vehicle_size[0]/2 <= radius):
                     angle = int(180/3.14*math.acos(self._vehicle_size[0]/(radius*2)))
                     radius = int(radius)
@@ -1090,11 +1089,11 @@ class PointsPainter(QThread):
                 else:
                     painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        # radius = 10
-        # painter.setPen(QPen(QColor('red'), 1))
-        # painter.setBrush(QColor('red'))
-        # for point in self._redPoints:
-        #     painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+        radius = 10
+        painter.setPen(QPen(QColor('red'), 1))
+        painter.setBrush(QColor('red'))
+        for point in self._redPoints:
+            painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
         # radius = 3
         # painter.setPen(QPen(QColor('blue'), 1))
