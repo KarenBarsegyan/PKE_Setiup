@@ -59,7 +59,7 @@ class PointsPainter(QThread):
         # Vehicle size
         self._vehicle_top_left_angle = tuple([275, 450])
         self._vehicle_size = tuple([450, 325])
-        self._zones_step_size_setup = 2
+        self._zones_step_size_setup = 3
         self._first_ant = 1 - 1
         self._left_ant  = 4 - 1
         self._right_ant = 3 - 1
@@ -330,7 +330,7 @@ class PointsPainter(QThread):
             for zoneLeftDist in range(0, self._vehicle_size[1] - topPart, self._zones_step_size):
                 radius = (zoneLeftDist**2 + aSize**2)**0.5
                 if(radius >= aSize):
-                    self._zoneCircles[zonePos].append(radius)
+                    # self._zoneCircles[zonePos].append(radius)
                     x1 = self._vehicle_top_left_angle[0]
                     x2 = self._vehicle_top_left_angle[0] + self._vehicle_size[0]
                     y = zonePos[1] + zoneLeftDist + self._zones_step_size/2
@@ -483,108 +483,68 @@ class PointsPainter(QThread):
             # If calibration was done at least in one point
             if self._greenPoints:
 
-                # Find measured in real time RMS RSSI
-                mainRSSI = 0
-                for i in range(3):
-                    mainRSSI += self._ants_keys_data.one_key_data[self._first_ant][i]**2
-                mainRSSI = mainRSSI ** (0.5)
+                leftGreen = tuple()
+                rightGreen = tuple()
+                for point in self._greenPoints:
+                    if point[0] == self._vehicle_top_left_angle[0]:
+                        leftGreen = point
+                    if point[0] == self._vehicle_top_left_angle[0] + self._vehicle_size[0]:
+                        rightGreen = point
 
-                # Find measured in real time RMS RSSI
-                closestRSSI = float('inf')
-                posOfClosest = tuple()
-                for greenPoint in self._greenPoints:
-                    greenRSSI = self._greenPoints[greenPoint].dataRMS
-                    if (abs(mainRSSI - closestRSSI) > abs(mainRSSI - greenRSSI[self._first_ant])) and greenRSSI[self._first_ant] != 0:
-                        closestRSSI = greenRSSI[self._first_ant]
-                        posOfClosest = greenPoint
-
-                # Find RSSIs from left and right ant
-                mainRSSILeft = 0
-                for i in range(3):
-                    mainRSSILeft += self._ants_keys_data.one_key_data[self._left_ant][i]**2
-                mainRSSILeft = mainRSSILeft ** (0.5)
-                
-                mainRSSIRight = 0
-                for i in range(3):
-                    mainRSSIRight += self._ants_keys_data.one_key_data[self._right_ant][i]**2
-                mainRSSIRight = mainRSSIRight ** (0.5)
-
-                # Add to closest point it's mirror point
-                leftRightPosOfClosest = tuple()
-                antToCompare = 0
-
-                if posOfClosest[0] == self._vehicle_top_left_angle[0] and mainRSSILeft > mainRSSIRight:
-                    leftRightPosOfClosest = posOfClosest
-                    antToCompare = self._right_ant
-
-                elif posOfClosest[0] == self._vehicle_top_left_angle[0] and mainRSSILeft <= mainRSSIRight:
-                    leftRightPosOfClosest = tuple([posOfClosest[0] + self._vehicle_size[0], posOfClosest[1]])
-                    antToCompare = self._left_ant
-
-                elif posOfClosest[0] == self._vehicle_top_left_angle[0] + self._vehicle_size[0] and mainRSSILeft < mainRSSIRight:
-                    leftRightPosOfClosest = posOfClosest
-                    antToCompare = self._left_ant
-
-                elif posOfClosest[0] == self._vehicle_top_left_angle[0] + self._vehicle_size[0] and mainRSSILeft >= mainRSSIRight:
-                    leftRightPosOfClosest = tuple([posOfClosest[0] - self._vehicle_size[0], posOfClosest[1]])
-                    antToCompare = self._right_ant
-
-                # if left and right points are found
-                if leftRightPosOfClosest:
-                    # Show point to compare
-                    self._purplePoints.clear()
-                    self._purplePoints[leftRightPosOfClosest] = 0
-
-                    # Find coords of first Ant
-                    zonePos = tuple()
-                    for antPos in self._antPoints:
-                        nAnt = self._antPoints[antPos] 
-                        if nAnt == self._first_ant:
-                            zonePos = antPos
-
-                    # Show zone circles
-                    radiusFromClosest = ((leftRightPosOfClosest[0] - zonePos[0])**2 + 
-                                         (leftRightPosOfClosest[1] - zonePos[1])**2)**0.5
-                    upperMin = float('inf')
-                    bottomMin = float('inf')
-                    upperRadius = 0
-                    bottomRadius = 0
-                    posZone = tuple()
-
-                    for pos in self._zoneCircles:
-                        posZone = pos
-                        for radius in self._zoneCircles[pos]:
-                            if radius - radiusFromClosest > 0 and radius - radiusFromClosest < upperMin:
-                                upperMin = radius - radiusFromClosest
-                                upperRadius = radius
-                            
-                            if radiusFromClosest - radius > 0 and radiusFromClosest - radius < bottomMin:
-                                bottomMin = radiusFromClosest - radius
-                                bottomRadius = radius
-
-                    self._active_zone_circles[posZone] = [upperRadius, bottomRadius]
-
-                    # Show ant to compare
-                    self._checkedAntPoints.clear()
-                    for antPos in self._antPoints:
-                        nAnt = self._antPoints[antPos]
-    
-                        if nAnt == antToCompare:
-                            self._checkedAntPoints[antPos] = 0
-
-
-                    # Check if key is inside or not
-                    if leftRightPosOfClosest in self._greenPoints:
-                        self._key_inside = 1 
-                        RSSIToCompare = self._greenPoints[leftRightPosOfClosest].dataRMS[antToCompare]
+                if leftGreen and rightGreen:
+                    # Find RSSIs from left and right ant
+                    mainRSSILeft = 0
+                    for i in range(3):
+                        mainRSSILeft += self._ants_keys_data.one_key_data[self._left_ant][i]**2
+                    mainRSSILeft = mainRSSILeft ** (0.5)
                     
-                        mainRSSI = 0
-                        for i in range(3):
-                            mainRSSI += self._ants_keys_data.one_key_data[antToCompare][i]**2
-                        mainRSSI = mainRSSI ** (0.5)
+                    mainRSSIRight = 0
+                    for i in range(3):
+                        mainRSSIRight += self._ants_keys_data.one_key_data[self._right_ant][i]**2
+                    mainRSSIRight = mainRSSIRight ** (0.5)
 
-                        if mainRSSI < RSSIToCompare:
-                            self._key_inside = 2
+                    # Add to closest point it's mirror point
+                    leftRightPosOfClosest = tuple()
+                    antToCompare = 0
+
+                    if mainRSSILeft > mainRSSIRight:
+                        leftRightPosOfClosest = leftGreen
+                        antToCompare = self._right_ant
+
+                    elif mainRSSILeft <= mainRSSIRight:
+                        leftRightPosOfClosest = rightGreen
+                        antToCompare = self._left_ant
+
+
+                    # if left and right points are found
+                    if leftRightPosOfClosest:
+                        # Show point to compare
+                        self._purplePoints.clear()
+                        self._purplePoints[leftRightPosOfClosest] = 0
+
+                        # Show ant to compare
+                        self._checkedAntPoints.clear()
+                        for antPos in self._antPoints:
+                            nAnt = self._antPoints[antPos]
+        
+                            if nAnt == antToCompare:
+                                self._checkedAntPoints[antPos] = 0
+
+                        # Check if key is inside or not
+                        if leftRightPosOfClosest in self._greenPoints:
+                            self._key_inside = 1 
+                            RSSIToCompare = self._greenPoints[leftRightPosOfClosest].dataRMS[antToCompare]
+
+
+                            mainRSSI = 0
+                            for i in range(3):
+                                mainRSSI += self._ants_keys_data.one_key_data[antToCompare][i]**2
+                            mainRSSI = mainRSSI ** (0.5)
+
+                            # print('Ant: ', antToCompare+1, 'RSSI to comp: RSSIToCompare', RSSIToCompare, 'RSSI: ', mainRSSI)
+
+                            if mainRSSI < RSSIToCompare:
+                                self._key_inside = 2
 
 
 

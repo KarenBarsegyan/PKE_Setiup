@@ -1,18 +1,46 @@
-from PyQt5 import QtCore, QtWidgets
-import sys
-app = QtWidgets.QApplication(sys.argv)
-window = QtWidgets.QWidget(flags=QtCore.Qt.Dialog)
-window.setWindowTitle("Всплывающие подсказки")
-window.resize(300, 70)
-button = QtWidgets.QPushButton("Закрыть окно", window)
-button.setFixedSize(150, 30)
-button.move(75, 20)
-button.setToolTip("Это всплывающая подсказка для кнопки\nЭто всплывающая подсказка для кнопки\nЭто всплывающая подсказка для кнопки\nЭто всплывающая подсказка для кнопки\nЭто всплывающая подсказка для кнопки\nЭто всплывающая подсказка для кнопки\n")
-button.setToolTipDuration(3000)
-window.setToolTip("Это всплывающая подсказка для окна")
-button.setToolTipDuration(5000)
-button.setWhatsThis("Это справка для кнопки")
-window.setWhatsThis("Это справка для окна")
-button.clicked.connect(QtWidgets.qApp.quit) 
-window.show()
-sys.exit(app.exec_())
+import dearpygui.dearpygui as dpg
+
+dpg.create_context()
+
+# callback runs when user attempts to connect attributes
+def link_callback(sender, app_data):
+    # app_data -> (link_id1, link_id2)
+    dpg.add_node_link(app_data[0], app_data[1], parent=sender)
+
+# callback runs when user attempts to disconnect attributes
+def delink_callback(sender, app_data):
+    # app_data -> link_id
+    dpg.delete_item(app_data)
+
+with dpg.window(label="Tutorial", width=400, height=400):
+
+    with dpg.node_editor(callback=link_callback, delink_callback=delink_callback):
+        with dpg.node(label="if"):
+            with dpg.node_attribute(label="if A1"):
+                dpg.add_input_float(label="in 1", width=150)
+
+            with dpg.node_attribute(label="if A2"):
+                dpg.add_input_float(label="in 2", width=150)
+
+            with dpg.node_attribute(label="if A3", attribute_type=dpg.mvNode_Attr_Output):
+                dpg.add_input_text(label="out", width=150)
+
+        with dpg.node(label="Node 2"):
+            with dpg.node_attribute(label="Node A3"):
+                dpg.add_input_float(label="F3", width=200)
+
+            with dpg.node_attribute(label="Node A4", attribute_type=dpg.mvNode_Attr_Output):
+                dpg.add_input_float(label="F4", width=200)
+
+        with dpg.node(label="Node 2"):
+            with dpg.node_attribute(label="Node A3"):
+                dpg.add_input_float(label="F3", width=200)
+
+            with dpg.node_attribute(label="Node A4", attribute_type=dpg.mvNode_Attr_Output):
+                dpg.add_input_float(label="F4", width=200)
+
+dpg.create_viewport(title='Custom Title', width=800, height=600)
+dpg.setup_dearpygui()
+dpg.show_viewport()
+dpg.start_dearpygui()
+dpg.destroy_context()
