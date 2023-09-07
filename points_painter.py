@@ -65,7 +65,7 @@ class PointsPainter(QThread):
         self._right_ant = 2 - 1
         self._left_upper_ant  = 1 - 1
         self._right_upper_ant = 5 - 1
-        self._gray_points_coords = [(275, 700), (275+450, 700), (275+100, 500), (275+int(450)-100, 500)]
+        self._gray_points_coords = [(275, 650), (275+450, 650), (275+int(450/2), 525)]
 
         #################################
 
@@ -465,28 +465,25 @@ class PointsPainter(QThread):
 
                 leftGreen = tuple()
                 rightGreen = tuple()
-                leftUpperGreen = tuple()
-                rightUpperGreen = tuple()
+                centerGreen = tuple()
                 for point in self._greenPoints:
                     if point[0] == self._vehicle_top_left_angle[0]:
                         leftGreen = point
                     if point[0] == self._vehicle_top_left_angle[0] + self._vehicle_size[0]:
                         rightGreen = point
-                    if point[0] < self._vehicle_top_left_angle[0] + self._vehicle_size[0]/2:
-                        leftUpperGreen = point
-                    if point[0] > self._vehicle_top_left_angle[0] + self._vehicle_size[0]/2:
-                        rightUpperGreen = point
+                    if point[0] == self._vehicle_top_left_angle[0] + self._vehicle_size[0]/2:
+                        centerGreen = point
 
-                if leftGreen and rightGreen and leftUpperGreen and rightUpperGreen:
+                if leftGreen and rightGreen and centerGreen:
                     # Find RSSIs from left and right ant
                     mainRSSILeft = 0
                     for i in range(3):
-                        mainRSSILeft += self._ants_keys_data.one_key_data[self._left_ant][i]**2
+                        mainRSSILeft += self._ants_keys_data.one_key_data[self._left_upper_ant][i]**2
                     mainRSSILeft = mainRSSILeft ** (0.5)
                     
                     mainRSSIRight = 0
                     for i in range(3):
-                        mainRSSIRight += self._ants_keys_data.one_key_data[self._right_ant][i]**2
+                        mainRSSIRight += self._ants_keys_data.one_key_data[self._right_upper_ant][i]**2
                     mainRSSIRight = mainRSSIRight ** (0.5)
 
                     # Add to closest point it's mirror point
@@ -496,14 +493,14 @@ class PointsPainter(QThread):
                     upperAntToCompare = 0
 
                     if mainRSSILeft > mainRSSIRight:
-                        leftRightPosOfClosest = leftUpperGreen
+                        leftRightPosOfClosest = centerGreen
                         leftRightUpperPosOfClosest = leftGreen
-                        antToCompare = self._right_ant
+                        antToCompare = self._left_ant
                         upperAntToCompare = self._right_upper_ant
                     else:
-                        leftRightPosOfClosest = rightGreen
-                        leftRightUpperPosOfClosest = rightUpperGreen
-                        antToCompare = self._left_ant
+                        leftRightPosOfClosest = centerGreen
+                        leftRightUpperPosOfClosest = rightGreen
+                        antToCompare = self._right_ant
                         upperAntToCompare = self._left_upper_ant
 
 
@@ -512,8 +509,6 @@ class PointsPainter(QThread):
                         # Show point to compare
                         self._purplePoints.clear()
                         self._purpleBadPoints.clear()
-                        self._purplePoints[leftRightPosOfClosest] = 0
-                        self._purplePoints[leftRightUpperPosOfClosest] = 0
 
                         posAnt = tuple()
                         posUpperAnt = tuple()
@@ -525,17 +520,17 @@ class PointsPainter(QThread):
 
                             if nAnt == antToCompare:
                                 posAnt = antPos
-                                self._checkedAntPoints[antPos] = 0
                             elif nAnt == upperAntToCompare:
                                 posUpperAnt = antPos
-                                self._checkedAntPoints[antPos] = 0
 
                         if posAnt and posUpperAnt:
 
                             # Check if key is inside or not
                             if leftRightPosOfClosest in self._greenPoints and leftRightUpperPosOfClosest in self._greenPoints:
-                                self._key_inside = 1 
-
+                                RSSIPresented = 0
+                                self._key_inside = 0
+                                
+                                 
                                 # Check upper ants
                                 RSSIToCompare = self._greenPoints[leftRightUpperPosOfClosest].dataRMS[upperAntToCompare]
                                 mainRSSI = 0
@@ -543,27 +538,50 @@ class PointsPainter(QThread):
                                     mainRSSI += self._ants_keys_data.one_key_data[upperAntToCompare][i]**2
                                 mainRSSI = mainRSSI ** (0.5)
 
-                                if mainRSSI < RSSIToCompare:
+                                if mainRSSI > 0:
+                                    RSSIPresented += 1
+
+                                if mainRSSI < RSSIToCompare and mainRSSI > 0:
                                     self._key_inside = 2
                                     self._purpleBadPoints[leftRightUpperPosOfClosest] = 0
                                     self._checkedAntBadPoints[posUpperAnt] = 0
 
                                 # print('Ant: ', antToCompare+1, 'RSSI to comp: RSSIToCompare', RSSIToCompare, 'RSSI: ', mainRSSI)
 
+                                # RSSIToCompare = self._greenPoints[leftRightPosOfClosest].dataRMS[upperAntToCompare]
+                                checkDoors = False
+                                if mainRSSI < 0:
+                                    checkDoors = True
+                                    # Check door ants
+                                    RSSIToCompare = self._greenPoints[leftRightPosOfClosest].dataRMS[antToCompare]
+                                    mainRSSI = 0
+                                    for i in range(3):
+                                        mainRSSI += self._ants_keys_data.one_key_data[antToCompare][i]**2
+                                    mainRSSI = mainRSSI ** (0.5)
 
-                                # Check door ants
-                                RSSIToCompare = self._greenPoints[leftRightPosOfClosest].dataRMS[antToCompare]
-                                mainRSSI = 0
-                                for i in range(3):
-                                    mainRSSI += self._ants_keys_data.one_key_data[antToCompare][i]**2
-                                mainRSSI = mainRSSI ** (0.5)
+                                    if mainRSSI > 0:
+                                        RSSIPresented += 1
 
-                                if mainRSSI < RSSIToCompare:
-                                    self._key_inside = 2
-                                    self._purpleBadPoints[leftRightPosOfClosest] = 0
-                                    self._checkedAntBadPoints[posAnt] = 0
+                                    if mainRSSI < RSSIToCompare and mainRSSI > 0:
+                                        self._key_inside = 2
+                                        self._purpleBadPoints[leftRightPosOfClosest] = 0
+                                        self._checkedAntBadPoints[posAnt] = 0
+                                else:
+                                    RSSIPresented += 1
 
 
+                                if RSSIPresented == 2:
+                                    if checkDoors:
+                                        self._purplePoints[leftRightPosOfClosest] = 0
+                                        self._checkedAntPoints[posAnt] = 0
+
+                                    self._purplePoints[leftRightUpperPosOfClosest] = 0
+                                    self._checkedAntPoints[posUpperAnt] = 0
+
+                                    if self._key_inside == 0:
+                                        self._key_inside = 1  
+                                else:
+                                    self._key_inside = 2 
 
             self._paintMeasureEvent()
         # except Exception as exc:
