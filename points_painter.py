@@ -61,11 +61,11 @@ class PointsPainter(QThread):
         self._vehicle_size = tuple([450, 325])
         self._zones_step_size_setup = 3
         # self._first_ant = 1 - 1
-        self._left_ant  = 4 - 1
-        self._right_ant = 3 - 1
+        self._left_ant  = 3 - 1
+        self._right_ant = 2 - 1
         self._left_upper_ant  = 1 - 1
-        self._right_upper_ant = 2 - 1
-        self._gray_points_coords = [(275, 700), (275+450, 700), (275+int(450/2), 525)]
+        self._right_upper_ant = 5 - 1
+        self._gray_points_coords = [(275, 700), (275+450, 700), (275+100, 500), (275+int(450)-100, 500)]
 
         #################################
 
@@ -331,7 +331,7 @@ class PointsPainter(QThread):
         self._min_rssi = 0
         self._min_rssi = 0
 
-        if nAnt == 0 or nAnt == 1:
+        if nAnt == 0 or nAnt == 1 or nAnt == 4:
             # Door ant
             self._distances[self._convNum(6520)] = 200
             self._distances[self._convNum(1135)] = 400
@@ -465,16 +465,19 @@ class PointsPainter(QThread):
 
                 leftGreen = tuple()
                 rightGreen = tuple()
-                centerGreen = tuple()
+                leftUpperGreen = tuple()
+                rightUpperGreen = tuple()
                 for point in self._greenPoints:
                     if point[0] == self._vehicle_top_left_angle[0]:
                         leftGreen = point
                     if point[0] == self._vehicle_top_left_angle[0] + self._vehicle_size[0]:
                         rightGreen = point
-                    if point[0] == self._vehicle_top_left_angle[0] + self._vehicle_size[0]/2:
-                        centerGreen = point
+                    if point[0] < self._vehicle_top_left_angle[0] + self._vehicle_size[0]/2:
+                        leftUpperGreen = point
+                    if point[0] > self._vehicle_top_left_angle[0] + self._vehicle_size[0]/2:
+                        rightUpperGreen = point
 
-                if leftGreen and rightGreen:
+                if leftGreen and rightGreen and leftUpperGreen and rightUpperGreen:
                     # Find RSSIs from left and right ant
                     mainRSSILeft = 0
                     for i in range(3):
@@ -493,13 +496,13 @@ class PointsPainter(QThread):
                     upperAntToCompare = 0
 
                     if mainRSSILeft > mainRSSIRight:
-                        leftRightPosOfClosest = centerGreen
+                        leftRightPosOfClosest = leftUpperGreen
                         leftRightUpperPosOfClosest = leftGreen
                         antToCompare = self._right_ant
                         upperAntToCompare = self._right_upper_ant
                     else:
                         leftRightPosOfClosest = rightGreen
-                        leftRightUpperPosOfClosest = centerGreen
+                        leftRightUpperPosOfClosest = rightUpperGreen
                         antToCompare = self._left_ant
                         upperAntToCompare = self._left_upper_ant
 
