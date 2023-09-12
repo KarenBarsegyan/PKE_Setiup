@@ -61,16 +61,25 @@ class PointsPainter(QThread):
         self._vehicle_size = tuple([450, 325])
         self._zones_step_size_setup = 3
         # self._first_ant = 1 - 1
-        self._left_ant  = 3 - 1
-        self._right_ant = 2 - 1
+        self._left_door_ant  = 3 - 1
+        self._right_door_ant = 2 - 1
+        self._back_door_ant = 6 - 1
+
+        self._left_door_button = 1
+        self._right_door_button = 2
+        self._back_door_button = 3
+
         self._left_upper_ant  = 1 - 1
         self._right_upper_ant = 5 - 1
-        self._gray_points_coords = [(275, 650), (275+450, 650)]
+        self._doors_circ_radius = 100
+        self._gray_points_coords = [(275, 650), (275+450, 650), 
+                                    (275-self._doors_circ_radius, 725), 
+                                    (275+450+self._doors_circ_radius, 725),
+                                    (275+int(450/2), 450+1175)]
 
         #################################
 
         # Mesh step to real size
-        self._ants_to_check_key_location = [self._left_ant, self._right_ant]
         self._zones_step_size = self._mesh_step * 2 * self._zones_step_size_setup
         self._dist_to_mesh_coeff = distance_of_this_steps/(self._mesh_step * amount_of_mesh_steps)
         self._greenPoints = dict()
@@ -105,6 +114,7 @@ class PointsPainter(QThread):
         self._keyChosen = 0
         self._rssiFloatingWindowIsHidden = True
         self._key_inside = 0
+        self._key_next_to_door = 0
 
         self._yellow_radius = 0
         self._yellowAnimation = QPropertyAnimation(self, b"yellow_radius", self)
@@ -218,7 +228,7 @@ class PointsPainter(QThread):
         self._paintCalibrationEvent()
         self._paintMeasureEvent()
         
-    def rememberData(self, Data, authStat, isDone):
+    def rememberData(self, Data, authStat, isDone, buttonPressed):
         self._ants_keys_data.key_num = Data.key_num
         self._ants_keys_data.one_key_data = Data.makeOneKeyData()
         if self._yellowPointInProgress:
@@ -229,7 +239,17 @@ class PointsPainter(QThread):
                 self._ants_keys_data.clearAverage()
                 
         # self._calcDistance()
-        self._findZone()
+        if buttonPressed == 0:
+            self._findZone()
+        else:
+            self._key_inside = 0
+            self._purplePoints.clear()
+            self._purpleBadPoints.clear()
+            self._checkedAntPoints.clear()
+            self._checkedAntBadPoints.clear()
+
+        self._findDoorsZone(buttonPressed)
+
         self._updateToolbarData()
     
     def SetUpCalibrationDesk(self):
@@ -466,16 +486,13 @@ class PointsPainter(QThread):
 
                 leftGreen = tuple()
                 rightGreen = tuple()
-                centerGreen = tuple()
                 for point in self._greenPoints:
                     if point[0] == self._vehicle_top_left_angle[0]:
                         leftGreen = point
                     if point[0] == self._vehicle_top_left_angle[0] + self._vehicle_size[0]:
                         rightGreen = point
-                    if point[0] == self._vehicle_top_left_angle[0] + self._vehicle_size[0]/2:
-                        centerGreen = point
 
-                if leftGreen and rightGreen and centerGreen:
+                if leftGreen and rightGreen:
                     # Find RSSIs from left and right ant
                     mainRSSILeft = 0
                     for i in range(3):
@@ -488,25 +505,19 @@ class PointsPainter(QThread):
                     mainRSSIRight = mainRSSIRight ** (0.5)
 
                     # Add to closest point it's mirror point
-                    leftRightPosOfClosest = tuple()
                     leftRightUpperPosOfClosest = tuple()
-                    antToCompare = 0
                     upperAntToCompare = 0
 
                     if mainRSSILeft > mainRSSIRight:
-                        leftRightPosOfClosest = centerGreen
                         leftRightUpperPosOfClosest = leftGreen
-                        antToCompare = self._left_ant
                         upperAntToCompare = self._right_upper_ant
                     else:
-                        leftRightPosOfClosest = centerGreen
                         leftRightUpperPosOfClosest = rightGreen
-                        antToCompare = self._right_ant
                         upperAntToCompare = self._left_upper_ant
 
 
                     # if left and right points are found
-                    if leftRightPosOfClosest and leftRightUpperPosOfClosest:
+                    if leftRightUpperPosOfClosest:
                         # Show point to compare
                         self._purplePoints.clear()
                         self._purpleBadPoints.clear()
@@ -519,15 +530,13 @@ class PointsPainter(QThread):
                         for antPos in self._antPoints:
                             nAnt = self._antPoints[antPos]
 
-                            if nAnt == antToCompare:
-                                posAnt = antPos
-                            elif nAnt == upperAntToCompare:
+                            if nAnt == upperAntToCompare:
                                 posUpperAnt = antPos
 
-                        if posAnt and posUpperAnt:
+                        if posUpperAnt:
 
                             # Check if key is inside or not
-                            if leftRightPosOfClosest in self._greenPoints and leftRightUpperPosOfClosest in self._greenPoints:
+                            if leftRightUpperPosOfClosest in self._greenPoints:
                                 RSSIPresented = False
                                 self._key_inside = 0
                                 
@@ -541,7 +550,7 @@ class PointsPainter(QThread):
                                 if mainRSSI > 0:
                                     RSSIPresented = True
 
-                                if mainRSSI < RSSIToCompare and mainRSSI > 0:
+                                if mainRSSI < RSSIToCompare and RSSIPresented:
                                     self._key_inside = 2
                                     self._purpleBadPoints[leftRightUpperPosOfClosest] = 0
                                     self._checkedAntBadPoints[posUpperAnt] = 0
@@ -562,6 +571,52 @@ class PointsPainter(QThread):
             self._paintMeasureEvent()
         # except Exception as exc:
         #     self._logger.warning(f"Calc Distance Error: {exc}")
+
+    def _findDoorsZone(self, button):
+        self._key_next_to_door = 0
+        self._doors_circles.clear()
+
+        nAntToCheck = 0
+        for antPos in self._antPoints:
+            nAnt = self._antPoints[antPos]
+            if (nAnt == self._left_door_ant and button == self._left_door_button):
+                self._doors_circles[antPos] = self._doors_circ_radius
+                nAntToCheck = self._left_door_ant
+     
+            if (nAnt == self._right_door_ant and button == self._right_door_button):
+                self._doors_circles[antPos] = self._doors_circ_radius
+                nAntToCheck = self._right_door_ant
+
+            if (nAnt == self._back_door_ant and button == self._back_door_button):
+                self._doors_circles[antPos] = self._doors_circ_radius
+                nAntToCheck = self._back_door_ant
+        
+        if self._greenPoints:
+            calibDoorRssi = 0
+            for point in self._greenPoints:
+                if point[0] < self._vehicle_top_left_angle[0] and \
+                   nAntToCheck == self._left_door_ant:
+                    calibDoorRssi = self._greenPoints[point].dataRMS[self._left_door_ant]
+
+                if point[0] > self._vehicle_top_left_angle[0] + self._vehicle_size[0] and \
+                    nAntToCheck == self._right_door_ant:
+                    calibDoorRssi = self._greenPoints[point].dataRMS[self._right_door_ant]
+
+                if point[1] > self._vehicle_top_left_angle[1] + self._vehicle_size[1] and \
+                    nAntToCheck == self._back_door_ant:
+                    calibDoorRssi = self._greenPoints[point].dataRMS[self._back_door_ant]
+                
+            mainRSSI = 0
+            for i in range(3):
+                mainRSSI += self._ants_keys_data.one_key_data[nAntToCheck][i]**2
+            mainRSSI = mainRSSI ** (0.5)
+
+            if (mainRSSI > calibDoorRssi and mainRSSI > 0 and calibDoorRssi > 0):
+                self._key_next_to_door = 1
+            elif calibDoorRssi > 0:
+                self._key_next_to_door = 2
+        
+        self._paintMeasureEvent()
 
     def _findIntersectionPoint(self, circ1pos, r1, circ2pos, r2):
         # try:
@@ -920,18 +975,20 @@ class PointsPainter(QThread):
         y_size = canvas.height()
         
         # Draw the coordinate mesh
-        pen = QPen(Qt.black, 1, Qt.SolidLine)
+        pen = QPen(QColor(50, 50, 50, 70), 1, Qt.SolidLine)
         painter.setPen(pen)
         
         # Draw vertical lines
         for x in range(x_offset, x_size, self._mesh_step):
             painter.drawLine(x, 0, x, y_size)
-            painter.drawLine(x_size-x, 0, x_size-x, y_size)
+            if x != x_size-x:
+                painter.drawLine(x_size-x, 0, x_size-x, y_size)
         
         # Draw horizontal lines
         for y in range(y_offset, y_size, self._mesh_step):
             painter.drawLine(0, y, x_size, y)
-            painter.drawLine(0, y_size-y, x_size, y_size-y)
+            if y != y_size-y:
+                painter.drawLine(0, y_size-y, x_size, y_size-y)
 
         painter.end()
 
@@ -989,8 +1046,9 @@ class PointsPainter(QThread):
         for point in self._greenPoints:
             k = (self._greenPoints[point].auths_ok /
                  self._greenPoints[point].polls_done)
-            color = QColor(max(0, int(150-150*k*2)+1), 
-                           min(150, int(75*k*2))+10, 1)
+            # color = QColor(max(0, int(150-150*k*2)+1), 
+            #                min(150, int(75*k*2))+10, 1)
+            color = QColor('green')
             pen.setColor(color)
             painter.setPen(pen)
             painter.setBrush(color)
@@ -1060,19 +1118,38 @@ class PointsPainter(QThread):
         #         else:
         #             painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
 
-        # Doors zones circles
+        # Edge rect
         painter.setPen(QPen(QColor('purple'), 5))
-        painter.setBrush(QColor('transparent'))
-        for point in self._active_zone_circles:
-            for radius in self._doors_circles[point]:
-                if (self._vehicle_size[0]/2 <= radius):
-                    angle = int(180/3.14*math.acos(self._vehicle_size[0]/(radius*2)))
-                    radius = int(radius)
-                    painter.drawArc(point[0]-radius, point[1]-radius, 
-                                    radius*2, radius*2, 
-                                    -angle*16, -(180 - 2*angle) * 16)
-                else:
-                    painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
+
+        if self._key_inside == 0:
+            painter.setBrush(QColor('transparent'))
+        elif self._key_inside == 1:
+            painter.setBrush(QColor(0, 255, 0, 50))
+        else:
+            painter.setBrush(QColor(255, 0, 0, 50))
+
+        for point in self._vehicleEdgeRect:
+            rect = QRect(QPoint(point[0], point[1]), 
+                         QSize(self._vehicleEdgeRect[point][0], 
+                               self._vehicleEdgeRect[point][1]))
+            painter.drawRect(rect)
+
+        # Doors zones circles
+        painter.setPen(QPen(QColor('purple'), 3, Qt.DotLine))
+
+
+        if self._key_next_to_door == 0:
+            painter.setBrush(QColor('transparent'))
+        elif self._key_next_to_door == 1:
+            painter.setBrush(QColor(0, 255, 0, 50))
+        else:
+            painter.setBrush(QColor(255, 0, 0, 50))
+
+        for point in self._doors_circles:
+                radius = self._doors_circles[point]
+                radius = int(radius)
+                painter.drawEllipse(point[0]-radius, point[1]-radius, 
+                                    radius*2, radius*2)
 
         # radius = 10
         # painter.setPen(QPen(QColor('red'), 1))
@@ -1124,22 +1201,6 @@ class PointsPainter(QThread):
         # for point in self._keyCircles:
         #     radius = self._keyCircles[point]
         #     painter.drawEllipse(QPoint(point[0], point[1]), radius, radius)
-
-        # Edge rect
-        painter.setPen(QPen(QColor('purple'), 5))
-
-        if self._key_inside == 0:
-            painter.setBrush(QColor('transparent'))
-        elif self._key_inside == 1:
-            painter.setBrush(QColor(0, 255, 0, 50))
-        else:
-            painter.setBrush(QColor(255, 0, 0, 50))
-
-        for point in self._vehicleEdgeRect:
-            rect = QRect(QPoint(point[0], point[1]), 
-                         QSize(self._vehicleEdgeRect[point][0], 
-                               self._vehicleEdgeRect[point][1]))
-            painter.drawRect(rect)
 
 
         radius = 10

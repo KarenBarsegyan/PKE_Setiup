@@ -46,6 +46,7 @@ class MainWindow(QMainWindow):
         self._background_colors = [145, 147, 191]
         self._running_animations = dict()
         self._ants_keys_data = KeysData(self._ant_amount, self._key_amount)
+        self._but_pressed = 0
 
         self._initLogger()
         self._initWorksheet()
@@ -1118,6 +1119,7 @@ class MainWindow(QMainWindow):
         self._bus_worker.keyAuthReceived.connect(self._lastAuthUpdateCallback)
         self._bus_worker.canReceivedAll.connect(self._allDataReceivedCallback)
         self._bus_worker.antImpsReceived.connect(self._antImpsUpdateCallback)
+        self._bus_worker.wupButtonClicked.connect(self._wupButtonCallback)
         self._bus_worker.antDiagStateReceived.connect(self._antDiagUpdateCallback)
         
         self._bus_thread.start()
@@ -1204,6 +1206,15 @@ class MainWindow(QMainWindow):
             self._ant_imps_animation_in_progress = True    
             self._ant_imps_animation.start()
 
+    def _wupButtonCallback(self, but_mask):
+        but_pressed = 0
+        for i in range(6):
+            but_pressed |= ((but_mask >> i) & 1)*(i + 1) 
+
+        if but_pressed:
+            self._but_pressed = but_pressed
+            self._startPolling()
+
     def _antDiagUpdateCallback(self, statuses: list):
         self._widget_diag_statuses_combobox.clear()
         self._widget_diag_statuses_combobox.addItems(statuses)                            
@@ -1241,6 +1252,7 @@ class MainWindow(QMainWindow):
             self._stopPolling()
 
     def _startRepeatPolling(self):
+        self._but_pressed = 0
         self._is_polling_in_progress = True
         self._widget_start_polling_button.setText("Start Polling")
         self._widget_start_repeat_polling_button.setText("Stop Repeat Polling")
@@ -1342,7 +1354,10 @@ class MainWindow(QMainWindow):
                     self._ants_keys_data.key_num = nKey
                     break
 
-            self._points_painter.rememberData(self._ants_keys_data, self._auth_status, isPollDone)
+            self._points_painter.rememberData(self._ants_keys_data, self._auth_status, isPollDone, self._but_pressed)
+
+            if (self._pollings_done == self._pollings_needed and not self._repeat_polling):
+                self._but_pressed = 0
 
             # self._printLogData()
 
@@ -1394,7 +1409,7 @@ class MainWindow(QMainWindow):
         else:
             self._widget_msg_period_label.setText(f"Msg Period: {int(self._bus_worker.TimeBetweenMsgs)} ms")
 
-            # Check if PKE block has done as much polling, as needed
+            # Check if PKE unit has done as much polling, as needed
             if (not self._repeat_polling):
                 self._widget_pollings_done_label.setText(f"Target: {self._pollings_needed}; Done: {self._pollings_done}")
             else:  

@@ -7,6 +7,7 @@ import logging
 import os
 
 ###### CAN MSG IDs ######
+PKE_BUTTON_CLICKED    = 0x0109
 RKE_KEY_NUM_ID        = 0x0111
 PKE_AUTH_OK_ID        = 0x0129
 PKE_DIAG_STATE_ID     = 0x012A
@@ -26,6 +27,7 @@ class CanSendRecv(QThread):
     keyNumIdReceived = pyqtSignal(int)
     keyAuthReceived = pyqtSignal(int)
     antImpsReceived = pyqtSignal(list)
+    wupButtonClicked = pyqtSignal(int)
     antDiagStateReceived = pyqtSignal(list)
 
     def __init__(self, ANT_AMOUNT, KEY_AMOUNT, parent=None):
@@ -210,6 +212,9 @@ class CanSendRecv(QThread):
         elif msg.arbitration_id == PKE_ANT_IMPS_ID:
             antImps = list(msg.data[:6])
             self.antImpsReceived.emit(antImps)
+            
+        elif msg.arbitration_id == PKE_BUTTON_CLICKED:
+            self.wupButtonClicked.emit(int(msg.data[0]))
 
         elif (PKE_ANT_MSG_ID_MIN <= msg.arbitration_id and
               PKE_ANT_MSG_ID_MAX >= msg.arbitration_id):
