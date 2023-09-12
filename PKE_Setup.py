@@ -210,7 +210,7 @@ class MainWindow(QMainWindow):
         self._setKeyForMeasure()
         self._setAntCurrents()
         self._setStartDiag()
-        self._setPowerMode()
+        # self._setPowerMode()
 
         # Init all widgets which doesn't have default text
         self._processData(False)
@@ -265,16 +265,16 @@ class MainWindow(QMainWindow):
         file_menu.addAction(close_action)
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
-        # Logs Menu 
-        logging_menu = QMenu("&Logging", self)
-        menu_bar.addMenu(logging_menu)
-        logging_menu.addAction(new_log_action)
-        logging_menu.addAction(open_log_action)
-        logging_menu.addAction(save_log_action)
-        logging_menu.addAction(save_as_log_action)
+        # # Logs Menu 
+        # logging_menu = QMenu("&Logging", self)
+        # menu_bar.addMenu(logging_menu)
+        # logging_menu.addAction(new_log_action)
+        # logging_menu.addAction(open_log_action)
+        # logging_menu.addAction(save_log_action)
+        # logging_menu.addAction(save_as_log_action)
         # Help menu
-        help_menu = menu_bar.addMenu("&Help")
-        help_menu.addAction(about_action)
+        # help_menu = menu_bar.addMenu("&Help")
+        # help_menu.addAction(about_action)
 
     def _showSaveWindow(self):
         # You have to save file only if file path
@@ -382,6 +382,9 @@ class MainWindow(QMainWindow):
         # Set polling amount to default value == 3
         self._widget_polling_amount_lineedit.setText('3')
 
+        # Set Key for calibration to first key
+        self._key_for_measure_buttons[0].setChecked(True)
+
         # Clear another objects here:
         # Delete all points and key data
         self._points_painter.clearData()
@@ -430,7 +433,7 @@ class MainWindow(QMainWindow):
             self._bus_worker.poll_current = val
 
             # Restore Key for calibration choice
-            self._widgetKeyForMeasure.setCurrentIndex(keys_ants_data['key_for_calibration'])
+            self._key_for_measure_buttons[keys_ants_data['key_for_calibration']].setChecked(True)
 
         except Exception as exc:
             self.setWindowTitle(f"PKE Setup - File Was deleted or moved")
@@ -484,7 +487,10 @@ class MainWindow(QMainWindow):
 
         to_json['current'] = self._widget_curr_slider.value()
 
-        to_json['key_for_calibration'] = self._widgetKeyForMeasure.currentIndex()
+        for nKey in range(self._key_amount):
+            if self._key_for_measure_buttons[nKey].isChecked():
+                to_json['key_for_calibration'] = nKey
+                break
 
         return to_json
 
@@ -959,6 +965,8 @@ class MainWindow(QMainWindow):
 
         self._layout_widgets.addWidget(groupbox)
 
+    def _sliderWheelEvent(self, e): pass
+
     def _setAntCurrents(self):
         groupbox = QGroupBox("Ants currents")
         font = groupbox.font()
@@ -972,10 +980,11 @@ class MainWindow(QMainWindow):
         self._widget_curr_slider.setRange(1, 0x40)
         self._widget_curr_slider.setValue(0x20)
         self._widget_curr_slider.setSingleStep(1)
-        self._widget_curr_slider.setPageStep(2)
+        self._widget_curr_slider.setPageStep(1)
         self._widget_curr_slider.setTickInterval(0x1F)
         self._widget_curr_slider.setTickPosition(QSlider.TicksBelow)
         self._widget_curr_slider.valueChanged.connect(self._currentChangedHandler)
+        self._widget_curr_slider.wheelEvent = self._sliderWheelEvent
         box.addWidget(self._widget_curr_slider)
 
         self._widget_ant_curr_value_label = QLabel()
@@ -1069,11 +1078,29 @@ class MainWindow(QMainWindow):
         box.setSpacing(15)
         groupbox.setLayout(box)
 
-        self._widgetKeyForMeasure = QComboBox()
-        for nKey in range(0, self._key_amount):
-            self._widgetKeyForMeasure.addItem(f"Key {nKey+1}")
+        self._key_for_measure_buttons = []
+        widgetKeyForMeasure = QButtonGroup(box)
+        widgetKeyForMeasure.buttonClicked.connect(self._performAuthStateHandler)
 
-        box.addWidget(self._widgetKeyForMeasure)
+        inRow = 3
+        for nKey in range(0, int(self._key_amount/inRow+1)):
+            h = QHBoxLayout()
+            added = False
+            for nCnt in range(inRow):
+                idx = nKey*inRow + nCnt
+                if(idx < self._key_amount):
+                    self._key_for_measure_buttons.append(QRadioButton(f'Key {idx+1}'))
+                    font = self._key_for_measure_buttons[idx].font()
+                    font.setPointSize(11)
+                    self._key_for_measure_buttons[idx].setFont(font)
+                    widgetKeyForMeasure.addButton(self._key_for_measure_buttons[idx])
+                    h.addWidget(self._key_for_measure_buttons[idx])
+                    h.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                    added = True
+
+            if added:
+                box.addLayout(h)
+                added = False
 
         self._layout_widgets.addWidget(groupbox)
 
@@ -1278,7 +1305,11 @@ class MainWindow(QMainWindow):
         self._stopPolling()
 
         if start:
-            key_num = self._widgetKeyForMeasure.currentIndex()
+            for nKey in range(self._key_amount):
+                if self._key_for_measure_buttons[nKey].isChecked():
+                    key_num = nKey
+                    break
+                
             self._bus_worker.key_mask = (1 << key_num)
             self._startPolling()
 
@@ -1306,7 +1337,11 @@ class MainWindow(QMainWindow):
                 self._addLogHandler()
 
             # Send data to painter object
-            self._ants_keys_data.key_num = self._widgetKeyForMeasure.currentIndex()
+            for nKey in range(self._key_amount):
+                if self._key_for_measure_buttons[nKey].isChecked():
+                    self._ants_keys_data.key_num = nKey
+                    break
+
             self._points_painter.rememberData(self._ants_keys_data, self._auth_status, isPollDone)
 
             # self._printLogData()
